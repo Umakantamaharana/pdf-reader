@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Lumen PDF</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { width: 280px; margin: 0; font: 14px system-ui, sans-serif; background: #23262d; color: #e8ebf0; }
+      header { padding: 14px 16px 8px; font-weight: 700; }
+      .row { display: flex; gap: 8px; padding: 6px 16px 16px; }
+      button { flex: 1; padding: 10px; border: none; border-radius: 8px; cursor: pointer;
+               background: #4dabf7; color: #04121f; font-weight: 600; }
+      button.ghost { background: rgba(255,255,255,0.08); color: #e8ebf0; }
+      input { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #3a3f49;
+              background: #1b1e24; color: #e8ebf0; }
+      .field { padding: 0 16px 10px; }
+      small { opacity: 0.6; }
+    </style>
+  </head>
+  <body>
+    <header>Lumen PDF</header>
+    <div class="field">
+      <input id="url" type="text" placeholder="Paste a PDF URL…" />
+    </div>
+    <div class="row">
+      <button id="open">Open in reader</button>
+      <button id="settings" class="ghost">Settings</button>
+    </div>
+    <div class="field"><small>Tip: Lumen auto-opens <code>.pdf</code> links. Alt+Shift+P opens the current tab.</small></div>
+    <script type="module" src="./popup.ts"></script>
+  </body>
+</html>

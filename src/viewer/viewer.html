@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lumen PDF</title>
+  </head>
+  <body>
+    <main id="app">
+      <div id="scroll" class="pdf-scroll" tabindex="0"></div>
+
+      <div id="dropzone" class="dropzone" hidden>
+        <div class="dropzone-inner">
+          <h1>Lumen PDF</h1>
+          <p>Drop a PDF here, or</p>
+          <label class="file-btn">
+            Choose a file
+            <input type="file" accept="application/pdf" hidden />
+          </label>
+          <p class="hint">Press <kbd>Ctrl</kbd>+<kbd>K</kbd> for the command palette.</p>
+        </div>
+      </div>
+
+      <div id="error" class="error-banner" hidden></div>
+    </main>
+    <script type="module" src="./viewer.ts"></script>
+  </body>
+</html>

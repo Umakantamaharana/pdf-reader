@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lumen PDF — Settings</title>
+  </head>
+  <body>
+    <div class="settings-shell">
+      <header class="settings-header">
+        <h1>Lumen PDF Settings</h1>
+        <input id="search" type="search" placeholder="Search settings…  (/, to focus)" />
+        <div class="header-actions">
+          <button id="export" class="ghost">Export</button>
+          <button id="import" class="ghost">Import</button>
+          <button id="reset" class="danger">Reset all</button>
+          <input id="import-file" type="file" accept="application/json" hidden />
+        </div>
+      </header>
+      <main id="panels" class="settings-panels"></main>
+    </div>
+    <script type="module" src="./settings.ts"></script>
+  </body>
+</html>

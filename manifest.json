@@ -1,0 +1,69 @@
+{
+  "manifest_version": 3,
+  "name": "Lumen PDF — Keyboard-First Reader & Annotator",
+  "version": "0.1.0",
+  "description": "Keyboard-first PDF reader with smart dark mode, annotations, a middle-click eraser, and offline AI text-to-speech.",
+  "minimum_chrome_version": "116",
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
+  "action": {
+    "default_title": "Lumen PDF",
+    "default_popup": "src/ui/popup.html"
+  },
+
+  "options_ui": {
+    "page": "src/ui/settings.html",
+    "open_in_tab": true
+  },
+
+  "background": {
+    "service_worker": "src/background/service-worker.ts",
+    "type": "module"
+  },
+
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "offscreen",
+    "declarativeNetRequest",
+    "contextMenus",
+    "downloads"
+  ],
+
+  "optional_permissions": ["tabs"],
+
+  "host_permissions": ["<all_urls>"],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; worker-src 'self'"
+  },
+
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/viewer/viewer.html",
+        "assets/*",
+        "pdfjs/*",
+        "models/*",
+        "wasm/*"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ],
+
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+P" },
+      "description": "Open the Lumen PDF popup"
+    },
+    "open-current-in-reader": {
+      "suggested_key": { "default": "Alt+Shift+P" },
+      "description": "Open the current PDF in Lumen reader"
+    }
+  }
+}

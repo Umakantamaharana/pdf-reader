@@ -1,0 +1,456 @@
+:root {
+  --lumen-bg: #52555b;
+  --lumen-panel: #23262d;
+  --lumen-accent: #4dabf7;
+  --lumen-text: #e8ebf0;
+  --lumen-radius: 10px;
+
+  /* Glassmorphism surface tokens — shared by every bar, panel and popover. */
+  --glass-bg: rgba(24, 27, 36, 0.52);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-highlight: rgba(255, 255, 255, 0.10);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.44);
+  --glass-blur: blur(18px) saturate(160%);
+  --glass-hover: rgba(255, 255, 255, 0.12);
+  --glass-active: rgba(255, 255, 255, 0.18);
+}
+
+* { box-sizing: border-box; }
+
+/* ---- Shared glass surface + icon-button system ---- */
+.glass {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}
+/* Crisp vector icons that inherit the button's text color. */
+.lumen-tbtn svg, .annot-tbtn svg, .tts-btn svg, .search-btn svg, .search-ico svg {
+  width: 18px; height: 18px; display: block; pointer-events: none;
+}
+.lumen-tbtn, .annot-tbtn, .tts-btn, .search-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+}
+/* `hidden` must beat component rules that set an explicit `display`
+   (.dropzone/.search-bar/.lumen-toolbar), otherwise toggling `el.hidden`
+   leaves the element visible and it can overlay/block the page. */
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body {
+  font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--lumen-bg);
+  color: var(--lumen-text);
+  overflow: hidden;
+  color-scheme: dark; /* dark native scrollbars + form controls app-wide */
+}
+
+#app { height: 100vh; position: relative; }
+
+/* ---- Scroll / page area ---- */
+.pdf-scroll {
+  height: 100%;
+  overflow: auto;
+  padding: 24px 0 96px;
+  outline: none;
+  transition: background 0.2s ease;
+  color-scheme: dark;
+}
+/* Block layout + margin:auto centers pages but, unlike flex `align-items:center`,
+   keeps the LEFT edge reachable when a zoomed page is wider than the viewport
+   (flex centering pushes overflow off-screen on both sides — the zoom clip bug). */
+.pdf-page {
+  position: relative;
+  background: #fff;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  border-radius: 2px;
+  margin: 0 auto 20px;
+}
+.pdf-spread {
+  display: flex; gap: 12px; align-items: flex-start;
+  width: fit-content; margin: 0 auto 20px;
+}
+.pdf-spread .pdf-page { margin: 0; }
+.pdf-canvas { display: block; border-radius: 2px; }
+
+/* Dark, slim custom scrollbars to match the app chrome. */
+.pdf-scroll::-webkit-scrollbar { width: 13px; height: 13px; }
+.pdf-scroll::-webkit-scrollbar-track { background: transparent; }
+.pdf-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18); border-radius: 8px;
+  border: 3px solid transparent; background-clip: padding-box;
+}
+.pdf-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3); background-clip: padding-box;
+}
+
+/* ---- Thumbnail sidebar ---- */
+.lumen-sidebar {
+  position: fixed; left: 0; top: 0; bottom: 0; z-index: 55;
+  width: 188px; display: flex; flex-direction: column;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border-right: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+.sb-head {
+  padding: 14px 16px 8px; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.6;
+}
+.sb-list {
+  flex: 1; overflow-y: auto; padding: 4px 10px 24px;
+  display: flex; flex-direction: column; gap: 10px; align-items: center;
+}
+.sb-item {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  width: 100%; padding: 6px; border: none; border-radius: 10px;
+  background: transparent; color: var(--lumen-text); cursor: pointer;
+  transition: background 0.14s ease;
+}
+.sb-item:hover { background: var(--glass-hover); }
+.sb-item.active { background: var(--glass-active); }
+.sb-thumb {
+  width: 150px; max-width: 100%; min-height: 48px; border-radius: 3px;
+  background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+.sb-item.active .sb-thumb { outline: 2px solid var(--lumen-accent); outline-offset: 1px; }
+.sb-num { font-size: 11px; opacity: 0.65; font-variant-numeric: tabular-nums; }
+.sb-list::-webkit-scrollbar { width: 10px; }
+.sb-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16); border-radius: 8px;
+  border: 2px solid transparent; background-clip: padding-box;
+}
+/* margin (not padding) so the scroller's clientWidth shrinks and fit-to-width
+   math stays correct instead of overshooting under the sidebar. */
+body.sidebar-open .pdf-scroll { margin-left: 188px; }
+body.distraction-free .lumen-sidebar { display: none; }
+body.distraction-free.sidebar-open .pdf-scroll { margin-left: 0; }
+
+/* ---- PDF.js text layer (selection + search targets) ---- */
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-align: initial;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 2;
+}
+.textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+.textLayer span.markedContent { top: 0; height: 0; }
+
+/* ---- Annotation layers ----
+   canvas(0) < highlights(1) < textLayer(2) < pen/shapes(3) so text stays
+   readable under a highlight but strokes sit on top. */
+/* Rotation wrapper: sized to the unrotated page, rotated to match the canvas. */
+.annot-rot {
+  position: absolute; top: 0; left: 0; transform-origin: 0 0;
+  width: calc(var(--scale-factor, 1) * var(--page-w, 1) * 1px);
+  height: calc(var(--scale-factor, 1) * var(--page-h, 1) * 1px);
+}
+.annot-rot[data-rot='90'] { transform: translateX(calc(var(--scale-factor, 1) * var(--page-h, 1) * 1px)) rotate(90deg); }
+.annot-rot[data-rot='180'] { transform: translate(calc(var(--scale-factor, 1) * var(--page-w, 1) * 1px), calc(var(--scale-factor, 1) * var(--page-h, 1) * 1px)) rotate(180deg); }
+.annot-rot[data-rot='270'] { transform: translateY(calc(var(--scale-factor, 1) * var(--page-w, 1) * 1px)) rotate(270deg); }
+
+.annot-hl { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.annot-hl .mark { position: absolute; pointer-events: none; }
+.annot-hl .mark-highlight {
+  border-radius: 3px;
+  mix-blend-mode: multiply;
+  /* soft marker-pen edges instead of a hard rectangle */
+  filter: blur(0.4px);
+}
+.annot-hl .mark-underline, .annot-hl .mark-strike { border-radius: 2px; }
+.annot-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; overflow: visible; }
+.annot-dom { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.annot-dom > * { pointer-events: auto; position: absolute; }
+.annot-note {
+  width: 22px; height: 22px; margin: -11px 0 0 -11px;
+  display: grid; place-items: center; font-size: 12px; line-height: 1;
+  border-radius: 50% 50% 50% 2px; cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); color: #3a2f00;
+}
+.annot-textbox {
+  min-width: 24px; padding: 2px 4px; outline: none; white-space: pre-wrap;
+  background: rgba(255, 255, 255, 0.01); border: 1px dashed transparent; cursor: move;
+}
+.annot-textbox:focus { border-color: var(--lumen-accent); background: rgba(255, 255, 255, 0.85); cursor: text; }
+.annot-stamp { cursor: move; user-select: none; }
+.annot-note-editor {
+  position: fixed; z-index: 85; width: 240px; max-width: calc(100vw - 24px);
+  display: flex; flex-direction: column; gap: 6px; padding: 11px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px; box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}
+.annot-note-editor textarea {
+  width: 100%; height: 90px; resize: vertical;
+  background: rgba(255, 255, 255, 0.06); color: var(--lumen-text);
+  border: 1px solid var(--glass-border); border-radius: 8px; padding: 7px; outline: none;
+}
+.annot-note-editor button {
+  align-self: flex-end; padding: 6px 14px; border: none; border-radius: 7px;
+  background: var(--lumen-accent); color: #04121f; font-weight: 600; cursor: pointer;
+}
+body.annot-active .pdf-page { cursor: crosshair; }
+body.annot-active.annot-eraser .pdf-page { cursor: cell; }
+
+/* Dark-mode image protection: re-invert the canvas pixels behind image regions
+   so photos/diagrams look normal instead of like negatives. */
+.dark-img-wrap { pointer-events: none; }
+.pdf-scroll.dark-active .pdf-image-protect {
+  position: absolute;
+  backdrop-filter: invert(1) hue-rotate(180deg);
+  -webkit-backdrop-filter: invert(1) hue-rotate(180deg);
+}
+
+/* ---- Search highlights via the CSS Custom Highlight API ---- */
+::highlight(lumen-search) { background: rgba(255, 213, 0, 0.42); }
+::highlight(lumen-search-active) { background: rgba(255, 138, 0, 0.75); color: transparent; }
+
+/* ---- TTS read-aloud highlights ---- */
+::highlight(lumen-tts) { background: rgba(77, 171, 247, 0.22); }
+::highlight(lumen-tts-word) { background: rgba(77, 171, 247, 0.6); }
+
+/* ---- TTS control bar ---- */
+.tts-bar {
+  position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 5px; padding: 7px 11px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px; box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight); z-index: 60;
+}
+.tts-btn {
+  min-width: 32px; height: 32px; border: none; border-radius: 9px;
+  background: transparent; color: var(--lumen-text); cursor: pointer;
+  transition: background 0.14s ease;
+}
+.tts-btn:hover { background: var(--glass-hover); }
+.tts-play { background: var(--lumen-accent); color: #04121f; }
+.tts-play:hover { background: color-mix(in srgb, var(--lumen-accent) 85%, white); }
+.tts-engine, .tts-voice {
+  height: 32px; background: rgba(255, 255, 255, 0.06); color: var(--lumen-text);
+  border: 1px solid var(--glass-border); border-radius: 9px; padding: 0 6px; max-width: 150px;
+}
+.tts-status { font-size: 12px; opacity: 0.7; min-width: 90px; font-variant-numeric: tabular-nums; }
+body.distraction-free .tts-bar { display: none; }
+
+/* ---- Toolbar ---- */
+.lumen-toolbar {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+  z-index: 50;
+}
+.lumen-toolbar[data-position='floating'] { bottom: 22px; }
+.lumen-toolbar[data-position='docked-top'] { top: 0; bottom: auto; border-radius: 0 0 14px 14px; }
+.lumen-toolbar[data-position='docked-bottom'] { bottom: 0; border-radius: 14px 14px 0 0; }
+.lumen-toolbar[data-density='compact'] { gap: 8px; padding: 5px 8px; }
+
+.lumen-toolbar-buttons { display: flex; gap: 4px; }
+.lumen-tbtn {
+  min-width: 36px; height: 36px;
+  border: none; border-radius: 10px;
+  background: transparent; color: var(--lumen-text);
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease, transform 0.08s ease;
+}
+.lumen-tbtn:hover { background: var(--glass-hover); }
+.lumen-tbtn:active { background: var(--glass-active); transform: translateY(1px); }
+.lumen-status { font-variant-numeric: tabular-nums; opacity: 0.7; white-space: nowrap; }
+
+body.distraction-free .lumen-toolbar { display: none; }
+.lumen-tbtn.lumen-hide { opacity: 0.6; }
+
+/* Reveal handle shown when the toolbar is hidden */
+.lumen-toolbar-handle {
+  position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+  z-index: 49; width: 48px; height: 26px; border-radius: 13px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--glass-bg); border: 1px solid var(--glass-border);
+  color: var(--lumen-text); cursor: pointer;
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
+}
+.lumen-toolbar-handle:hover { background: var(--glass-hover); }
+.lumen-toolbar-handle svg { width: 18px; height: 18px; }
+
+/* ---- Annotation contextual bar ---- */
+.annot-bar {
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; padding: 7px 11px;
+  max-width: calc(100vw - 24px); flex-wrap: wrap; justify-content: center;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px; box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight); z-index: 60;
+}
+.annot-bar-tools, .annot-bar-actions { display: flex; gap: 3px; }
+.annot-tbtn {
+  min-width: 32px; height: 32px; border: none; border-radius: 9px;
+  background: transparent; color: var(--lumen-text); cursor: pointer;
+  transition: background 0.14s ease;
+}
+.annot-tbtn:hover { background: var(--glass-hover); }
+.annot-tbtn.active { background: var(--lumen-accent); color: #04121f; }
+.annot-color { width: 30px; height: 30px; padding: 0; border: none; background: none; cursor: pointer; }
+.annot-width { width: 80px; accent-color: var(--lumen-accent); }
+.annot-sep { width: 1px; height: 22px; background: rgba(255, 255, 255, 0.14); }
+body.distraction-free .annot-bar { display: none; }
+
+/* ---- Display / dark-mode panel ---- */
+.display-panel {
+  position: fixed; right: 16px; bottom: 76px; z-index: 75;
+  width: 268px; max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 110px); overflow-y: auto;
+  display: flex; flex-direction: column; gap: 11px; padding: 15px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px; box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}
+.dp-head { display: flex; justify-content: space-between; align-items: center; }
+.dp-switch, .dp-row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.dp-row { font-size: 13px; min-width: 0; }
+.dp-row select, .dp-row input[type=range] { flex: 1; min-width: 0; }
+.dp-row input[type=range] { accent-color: var(--lumen-accent); }
+.dp-row output { width: 34px; text-align: right; opacity: 0.7; font-variant-numeric: tabular-nums; }
+.dp-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.dp-preset {
+  width: 34px; height: 30px; border-radius: 8px; cursor: pointer;
+  border: 2px solid transparent; font-weight: 700;
+}
+.dp-preset.active { border-color: var(--lumen-accent); }
+.display-panel input[type=color] {
+  width: 34px; height: 26px; padding: 0; border: 1px solid var(--glass-border);
+  border-radius: 6px; background: none; cursor: pointer; flex: none;
+}
+.display-panel select {
+  background: rgba(255, 255, 255, 0.06); color: var(--lumen-text);
+  border: 1px solid var(--glass-border); border-radius: 7px; padding: 4px 6px;
+}
+
+/* ---- Command palette ---- */
+.cmdk-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex; justify-content: center; align-items: flex-start;
+  padding-top: 12vh;
+}
+.cmdk-overlay[hidden] { display: none; }
+.cmdk-panel {
+  width: min(640px, 92vw);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+  overflow: hidden;
+}
+.cmdk-input {
+  width: 100%; padding: 16px 18px;
+  border: none; outline: none;
+  background: transparent; color: var(--lumen-text);
+  font-size: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.cmdk-list { list-style: none; margin: 0; padding: 6px; max-height: 50vh; overflow: auto; }
+.cmdk-item {
+  display: grid; grid-template-columns: 96px 1fr auto;
+  align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 8px; cursor: pointer;
+}
+.cmdk-item.active { background: var(--lumen-accent); color: #04121f; }
+.cmdk-cat { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.6; }
+.cmdk-item.active .cmdk-cat { opacity: 0.8; }
+.cmdk-key {
+  font: 11px/1 ui-monospace, monospace;
+  padding: 3px 6px; border-radius: 5px;
+  background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* ---- Search bar ---- */
+.search-bar {
+  position: fixed; top: 14px; right: 18px; z-index: 70;
+  max-width: calc(100vw - 36px);
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 10px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}
+.search-ico { display: inline-flex; opacity: 0.6; }
+.search-ico svg { width: 16px; height: 16px; }
+.search-input {
+  width: 210px; max-width: 42vw; padding: 7px 10px;
+  border: 1px solid var(--glass-border); border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06); color: var(--lumen-text); outline: none;
+}
+.search-input:focus { border-color: var(--lumen-accent); }
+.search-count { min-width: 64px; text-align: center; font-size: 12px; opacity: 0.7; font-variant-numeric: tabular-nums; }
+.search-btn {
+  min-width: 30px; height: 30px; border: none; border-radius: 8px;
+  background: transparent; color: var(--lumen-text); cursor: pointer;
+  transition: background 0.14s ease;
+}
+.search-btn:hover { background: var(--glass-hover); }
+.search-toggle {
+  display: inline-flex; align-items: center; gap: 3px;
+  font: 11px/1 ui-monospace, monospace; padding: 4px 6px; border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06); cursor: pointer; user-select: none;
+}
+.search-toggle input { accent-color: var(--lumen-accent); }
+body.distraction-free .search-bar { top: 14px; }
+
+/* ---- Dropzone / error / toast ---- */
+.dropzone { position: absolute; inset: 0; display: grid; place-items: center; }
+.dropzone-inner { text-align: center; opacity: 0.9; }
+.file-btn {
+  display: inline-block; margin: 10px 0;
+  padding: 10px 18px; border-radius: 8px;
+  background: var(--lumen-accent); color: #04121f; font-weight: 600; cursor: pointer;
+}
+.hint { opacity: 0.6; font-size: 13px; }
+.error-banner {
+  position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+  background: #c0392b; color: #fff; padding: 10px 16px; border-radius: 8px; z-index: 80;
+}
+.lumen-toast {
+  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+  background: var(--glass-bg); color: var(--lumen-text);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  padding: 10px 16px; border-radius: 12px; z-index: 90;
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  animation: toast-in 0.15s ease;
+}
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+
+kbd {
+  font: 11px/1 ui-monospace, monospace;
+  padding: 2px 5px; border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.15);
+}
