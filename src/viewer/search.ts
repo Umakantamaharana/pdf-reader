@@ -14,6 +14,7 @@
 import { PDFViewer } from './pdfViewer';
 import { settings } from '../core/settings';
 import { icon } from '../ui/icons';
+import { dock } from '../ui/dock';
 
 interface Match {
   page: number;
@@ -53,7 +54,9 @@ export class SearchController {
 
   show(initial = ''): void {
     this.open = true;
-    this.bar.hidden = false;
+    // The find bar is a dock face like every other sub-toolbar: it rolls in
+    // over the toolbar and rolls back out when closed.
+    dock().open('search');
     if (initial) this.input.value = initial;
     this.input.focus();
     this.input.select();
@@ -62,7 +65,9 @@ export class SearchController {
 
   close(): void {
     this.open = false;
-    this.bar.hidden = true;
+    dock().close('search');
+    // Don't leave keystrokes going into a bar that is rolling away.
+    if (this.bar.contains(document.activeElement)) (document.getElementById('scroll') as HTMLElement | null)?.focus();
     this.clearHighlights();
     this.matches = [];
     this.active = -1;
@@ -231,18 +236,17 @@ export class SearchController {
   private buildBar(): HTMLDivElement {
     const bar = document.createElement('div');
     bar.className = 'search-bar';
-    bar.hidden = true;
     bar.innerHTML = `
       <span class="search-ico">${icon('search')}</span>
       <input class="search-input" type="text" placeholder="Find in document…" spellcheck="false" />
       <span class="search-count"></span>
-      <button class="search-btn" data-act="prev" title="Previous (Ctrl+Shift+N)" aria-label="Previous match">${icon('chevron-up')}</button>
-      <button class="search-btn" data-act="next" title="Next (Ctrl+N)" aria-label="Next match">${icon('chevron-down')}</button>
+      <button class="search-btn" data-act="prev" title="Previous (Shift+Enter / Shift+F3)" aria-label="Previous match">${icon('chevron-up')}</button>
+      <button class="search-btn" data-act="next" title="Next (Enter / F3)" aria-label="Next match">${icon('chevron-down')}</button>
       <label class="search-toggle" title="Match case"><input type="checkbox" data-opt="caseSensitive" />Aa</label>
       <label class="search-toggle" title="Whole words"><input type="checkbox" data-opt="wholeWords" />W</label>
       <label class="search-toggle" title="Regex"><input type="checkbox" data-opt="regex" />.*</label>
       <button class="search-btn" data-act="close" title="Close (Esc)" aria-label="Close">${icon('x')}</button>`;
-    document.body.appendChild(bar);
+    dock().register('search', bar);
 
     const input = bar.querySelector('.search-input') as HTMLInputElement;
     let debounce: number | undefined;

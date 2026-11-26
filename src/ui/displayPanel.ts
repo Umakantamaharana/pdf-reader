@@ -1,42 +1,49 @@
 /**
- * displayPanel.ts — Popover for dark-mode & color controls.
+ * displayPanel.ts — The night-mode toolbar (a dock face, see ui/dock.ts).
  *
- * Exposes the full color engine in the viewer (not just the Settings page):
- * enable, mode, preset chooser, live background/foreground color pickers that
- * edit the active preset, and brightness/contrast sliders. Everything writes to
- * settings.darkMode, which the DarkModeEngine applies live.
+ * Opened from the toolbar's sliders button (or Shift+Alt+D), it rolls in over
+ * the main toolbar as a single row of controls: dark-mode switch, mode,
+ * the built-in "Soft Night" theme chip (click to restore brightness 1 /
+ * contrast 0.6), brightness and contrast sliders, image protection, and — in
+ * custom-colors mode only — background/text pickers. × rolls back.
+ * Everything writes to settings.darkMode, which the DarkModeEngine applies live.
  */
 
 import { settings } from '../core/settings';
 import { AppSettings, ColorPreset } from '../core/schema';
+import { applyPreset } from '../viewer/darkmode';
+import { dock } from './dock';
+import { icon } from './icons';
 
 export class DisplayPanel {
   private el: HTMLDivElement;
-  private open = false;
 
   constructor() {
     this.el = document.createElement('div');
-    this.el.className = 'display-panel';
-    this.el.hidden = true;
-    document.body.appendChild(this.el);
+    this.el.className = 'display-bar';
+    dock().register('display', this.el);
     this.render();
-    settings.subscribe('darkMode', () => { if (this.open) this.render(); });
-    document.addEventListener('mousedown', (e) => {
-      if (this.open && !this.el.contains(e.target as Node)) this.close();
+    settings.subscribe('darkMode', () => {
+      // Don't rebuild under a slider being dragged — it would drop the drag.
+      const a = document.activeElement as HTMLInputElement | null;
+      if (a && this.el.contains(a) && a.type === 'range') {
+        const out = a.parentElement?.querySelector('output');
+        if (out) out.textContent = a.value;
+        return;
+      }
+      this.render();
     });
   }
 
   toggle(): void {
-    this.open ? this.close() : this.show();
+    dock().toggle('display');
   }
   show(): void {
-    this.open = true;
-    this.el.hidden = false;
     this.render();
+    dock().open('display');
   }
   close(): void {
-    this.open = false;
-    this.el.hidden = true;
+    dock().close('display');
   }
 
   private dm(): AppSettings['darkMode'] {
@@ -56,38 +63,65 @@ export class DisplayPanel {
   private render(): void {
     const dm = this.dm();
     const preset = this.activePreset();
+    const themes = dm.presets
+      .map((p) => {
+        const matches =
+          p.id === dm.activePresetId &&
+          (p.brightness == null || p.brightness === dm.brightness) &&
+          (p.contrast == null || p.contrast === dm.contrast);
+        const detail = p.brightness != null ? `Brightness ${p.brightness} · Contrast ${p.contrast}` : p.name;
+        return `<button class="db-theme ${matches ? 'active' : ''}" data-id="${p.id}" title="${p.name} — ${detail}${matches ? '' : ' (click to restore)'}">
+          <span class="db-swatch" style="background:${p.background};color:${p.foreground}">A</span>${p.name}</button>`;
+      })
+      .join('');
+
     this.el.innerHTML = `
-      <div class="dp-head">
-        <strong>Display</strong>
-        <label class="dp-switch"><input type="checkbox" id="dp-enabled" ${dm.enabled ? 'checked' : ''}/> Dark mode</label>
-      </div>
-      <label class="dp-row">Mode
-        <select id="dp-mode">
-          <option value="smart-invert" ${dm.mode === 'smart-invert' ? 'selected' : ''}>Smart invert</option>
-          <option value="custom-colors" ${dm.mode === 'custom-colors' ? 'selected' : ''}>Custom colors</option>
-          <option value="off" ${dm.mode === 'off' ? 'selected' : ''}>Off</option>
-        </select>
+      <label class="db-switch" title="Dark mode (Shift+D)">
+        <input type="checkbox" id="db-enabled" ${dm.enabled ? 'checked' : ''}/>
+        <span class="db-switch-track"></span>${icon('moon')}
       </label>
-      <div class="dp-presets" id="dp-presets">
-        ${dm.presets.map((p) => `<button class="dp-preset ${p.id === dm.activePresetId ? 'active' : ''}" data-id="${p.id}" style="background:${p.background};color:${p.foreground}" title="${p.name}">A</button>`).join('')}
-      </div>
-      <label class="dp-row">Background <input type="color" id="dp-bg" value="${preset.background}"/></label>
-      <label class="dp-row">Text <input type="color" id="dp-fg" value="${preset.foreground}"/></label>
-      <label class="dp-row">Brightness <input type="range" id="dp-bright" min="0.5" max="1.5" step="0.05" value="${dm.brightness}"/><output>${dm.brightness}</output></label>
-      <label class="dp-row">Contrast <input type="range" id="dp-contrast" min="0.5" max="1.5" step="0.05" value="${dm.contrast}"/><output>${dm.contrast}</output></label>
-      <label class="dp-row"><input type="checkbox" id="dp-img" ${dm.smartImageProtection ? 'checked' : ''}/> Protect images</label>
+      <select id="db-mode" class="db-select" title="Mode">
+        <option value="smart-invert" ${dm.mode === 'smart-invert' ? 'selected' : ''}>Smart invert</option>
+        <option value="custom-colors" ${dm.mode === 'custom-colors' ? 'selected' : ''}>Custom colors</option>
+        <option value="off" ${dm.mode === 'off' ? 'selected' : ''}>Off</option>
+      </select>
+      ${themes}
+      <span class="db-sep"></span>
+      <label class="db-slider" title="Brightness (Alt+] / Alt+[)">${icon('sun')}
+        <input type="range" id="db-bright" min="0.5" max="1.5" step="0.05" value="${dm.brightness}"/><output>${dm.brightness}</output>
+      </label>
+      <label class="db-slider" title="Contrast">${icon('contrast')}
+        <input type="range" id="db-contrast" min="0.5" max="1.5" step="0.05" value="${dm.contrast}"/><output>${dm.contrast}</output>
+      </label>
+      <label class="db-check" title="Keep photos looking normal under smart invert">
+        <input type="checkbox" id="db-img" ${dm.smartImageProtection ? 'checked' : ''}/>${icon('image')}
+      </label>
+      ${dm.mode === 'custom-colors' ? `
+      <span class="db-sep"></span>
+      <label class="db-color" title="Background"><input type="color" id="db-bg" value="${preset.background}"/></label>
+      <label class="db-color" title="Text"><input type="color" id="db-fg" value="${preset.foreground}"/></label>` : ''}
+      <span class="db-sep"></span>
+      <button class="annot-tbtn db-close" title="Close night mode toolbar (Esc)" aria-label="Close night mode toolbar">${icon('x')}</button>
     `;
 
-    this.q('#dp-enabled').addEventListener('change', (e) => settings.set('darkMode.enabled', (e.target as HTMLInputElement).checked));
-    this.q('#dp-mode').addEventListener('change', (e) => settings.patch({ 'darkMode.mode': (e.target as HTMLSelectElement).value, 'darkMode.enabled': true }));
-    this.q('#dp-presets').querySelectorAll<HTMLButtonElement>('.dp-preset').forEach((b) =>
-      b.addEventListener('click', () => settings.patch({ 'darkMode.activePresetId': b.dataset.id!, 'darkMode.enabled': true })),
+    const val = (e: Event) => (e.target as HTMLInputElement).value;
+    this.q('#db-enabled').addEventListener('change', (e) => settings.set('darkMode.enabled', (e.target as HTMLInputElement).checked));
+    this.q('#db-mode').addEventListener('change', (e) => settings.patch({ 'darkMode.mode': val(e), 'darkMode.enabled': true }));
+    this.el.querySelectorAll<HTMLButtonElement>('.db-theme').forEach((b) =>
+      b.addEventListener('click', () => {
+        const p = this.dm().presets.find((x) => x.id === b.dataset.id);
+        if (p) void applyPreset(p);
+      }),
     );
-    this.q('#dp-bg').addEventListener('input', (e) => this.updatePresetColor('background', (e.target as HTMLInputElement).value));
-    this.q('#dp-fg').addEventListener('input', (e) => this.updatePresetColor('foreground', (e.target as HTMLInputElement).value));
-    this.q('#dp-bright').addEventListener('input', (e) => settings.set('darkMode.brightness', Number((e.target as HTMLInputElement).value)));
-    this.q('#dp-contrast').addEventListener('input', (e) => settings.set('darkMode.contrast', Number((e.target as HTMLInputElement).value)));
-    this.q('#dp-img').addEventListener('change', (e) => settings.set('darkMode.smartImageProtection', (e.target as HTMLInputElement).checked));
+    this.el.querySelector('#db-bg')?.addEventListener('input', (e) => this.updatePresetColor('background', val(e)));
+    this.el.querySelector('#db-fg')?.addEventListener('input', (e) => this.updatePresetColor('foreground', val(e)));
+    this.q('#db-bright').addEventListener('input', (e) => settings.set('darkMode.brightness', Number(val(e))));
+    this.q('#db-contrast').addEventListener('input', (e) => settings.set('darkMode.contrast', Number(val(e))));
+    this.el.querySelectorAll<HTMLInputElement>('input[type=range]').forEach((r) =>
+      r.addEventListener('change', () => { r.blur(); this.render(); }),
+    );
+    this.q('#db-img').addEventListener('change', (e) => settings.set('darkMode.smartImageProtection', (e.target as HTMLInputElement).checked));
+    this.q('.db-close').addEventListener('click', () => this.close());
   }
 
   private q(sel: string): HTMLElement {

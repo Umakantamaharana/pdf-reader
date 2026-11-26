@@ -9,7 +9,7 @@
 
 import { settings } from '../core/settings';
 import { COMMANDS } from '../core/schema';
-import { ShortcutManager } from '../core/shortcuts';
+import { ShortcutManager, eventToChord } from '../core/shortcuts';
 import './settings.css';
 
 type Control =
@@ -47,10 +47,11 @@ const SECTIONS: Section[] = [
       ] },
       { kind: 'select', path: 'viewing.fitMode', label: 'Default fit', options: [
         { value: 'width', label: 'Fit width' },
-        { value: 'page', label: 'Fit page' },
+        { value: 'height', label: 'Fit height' },
+        { value: 'page', label: 'Fit whole page' },
         { value: 'actual', label: 'Actual size' },
       ] },
-      { kind: 'toggle', path: 'viewing.smoothScroll', label: 'Smooth scrolling' },
+      { kind: 'toggle', path: 'viewing.smoothScroll', label: 'Smooth scrolling & zoom animation' },
       { kind: 'toggle', path: 'viewing.sidebar.visible', label: 'Show sidebar' },
     ],
   },
@@ -66,11 +67,8 @@ const SECTIONS: Section[] = [
       { kind: 'toggle', path: 'darkMode.smartImageProtection', label: 'Protect images from inversion' },
       { kind: 'slider', path: 'darkMode.brightness', label: 'Brightness', min: 0.5, max: 1.5, step: 0.05 },
       { kind: 'slider', path: 'darkMode.contrast', label: 'Contrast', min: 0.5, max: 1.5, step: 0.05 },
-      { kind: 'select', path: 'darkMode.activePresetId', label: 'Color preset', options: [
-        { value: 'pure-black', label: 'Pure Black' },
-        { value: 'dark-slate', label: 'Dark Slate' },
-        { value: 'warm-sepia', label: 'Warm Sepia' },
-        { value: 'night-dim', label: 'Night Dim' },
+      { kind: 'select', path: 'darkMode.activePresetId', label: 'Theme', options: [
+        { value: 'soft-night', label: 'Soft Night (brightness 1 · contrast 0.6)' },
       ] },
     ],
   },
@@ -78,9 +76,11 @@ const SECTIONS: Section[] = [
     title: 'Annotation',
     controls: [
       { kind: 'toggle', path: 'annotation.enabled', label: 'Enable annotations' },
-      { kind: 'color', path: 'annotation.highlightColor', label: 'Highlight color' },
+      { kind: 'color', path: 'annotation.colors.light.highlight', label: 'Highlight color (light mode)' },
+      { kind: 'color', path: 'annotation.colors.dark.highlight', label: 'Highlight color (dark mode)' },
       { kind: 'slider', path: 'annotation.highlightOpacity', label: 'Highlight opacity', min: 0.1, max: 1, step: 0.05 },
-      { kind: 'color', path: 'annotation.penColor', label: 'Pen color' },
+      { kind: 'color', path: 'annotation.colors.light.pen', label: 'Pen color (light mode)' },
+      { kind: 'color', path: 'annotation.colors.dark.pen', label: 'Pen color (dark mode)' },
       { kind: 'slider', path: 'annotation.penWidth', label: 'Pen width', min: 1, max: 12, step: 1 },
       { kind: 'toggle', path: 'annotation.middleClickEraser.enabled', label: 'Middle-click eraser' },
       { kind: 'toggle', path: 'annotation.middleClickEraser.global', label: 'Eraser works outside annotation mode' },
@@ -102,15 +102,13 @@ const SECTIONS: Section[] = [
         { value: 'sentence', label: 'Sentence' },
       ] },
       { kind: 'toggle', path: 'tts.preferWebGPU', label: 'Prefer WebGPU (fallback to WASM)' },
+      { kind: 'toggle', path: 'tts.skipNonProse', label: 'Read like a person (skip charts, tables, headers & page numbers)' },
       { kind: 'toggle', path: 'tts.fallbackToNativeWhileLoading', label: 'Use browser voice while model loads' },
     ],
   },
   {
     title: 'Interface',
     controls: [
-      { kind: 'select', path: 'ui.theme', label: 'Theme', options: [
-        { value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' },
-      ] },
       { kind: 'toggle', path: 'ui.toolbarVisible', label: 'Show toolbar' },
       { kind: 'select', path: 'ui.toolbarPosition', label: 'Toolbar position', options: [
         { value: 'floating', label: 'Floating' },
@@ -134,8 +132,18 @@ const SECTIONS: Section[] = [
 
 const shortcuts = new ShortcutManager(() => {});
 
+/** The settings page follows the reader's theme: dark while dark mode is on. */
+function applyTheme() {
+  const dm = settings.get<any>('darkMode');
+  document.body.classList.toggle('lumen-dark', !!dm?.enabled && dm?.mode !== 'off');
+}
+
 async function boot() {
   await settings.init();
+  document.body.classList.add('theme-boot');
+  applyTheme();
+  settings.subscribe('darkMode', applyTheme);
+  requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('theme-boot')));
   shortcuts.rebuild();
   render();
   wireHeader();
@@ -251,7 +259,7 @@ function renderKeymap(): HTMLElement {
 
     const key = document.createElement('button');
     key.className = 'keymap-key';
-    key.textContent = shortcuts.bindingFor(cmd.id) ?? '—';
+    key.textContent = bindingLabel(cmd.id);
     key.addEventListener('click', () => captureBinding(cmd.id, key));
 
     const reset = document.createElement('button');
@@ -270,13 +278,19 @@ function renderKeymap(): HTMLElement {
   return el;
 }
 
+/** All bindings of a command, e.g. "ctrl+= / ctrl+plus" (⌘ twins omitted). */
+function bindingLabel(id: string): string {
+  const all = shortcuts.bindingsFor(id).filter((b) => !/(^|[ +])meta\+/.test(b) || !shortcuts.bindingsFor(id).includes(b.replace(/meta\+/g, 'ctrl+')));
+  return all.length ? all.join('  /  ') : '—';
+}
+
 function refreshKeymap(list: HTMLElement) {
   shortcuts.rebuild();
   const conflicts = new Set(shortcuts.detectConflicts().flatMap((c) => c.commandIds));
   list.querySelectorAll('.keymap-row').forEach((rowEl, i) => {
     const cmd = COMMANDS[i];
     const key = rowEl.querySelector('.keymap-key') as HTMLButtonElement;
-    key.textContent = shortcuts.bindingFor(cmd.id) ?? '—';
+    key.textContent = bindingLabel(cmd.id);
     key.classList.toggle('conflict', conflicts.has(cmd.id));
   });
 }
@@ -288,17 +302,10 @@ function captureBinding(id: string, btn: HTMLButtonElement) {
   const onKey = async (e: KeyboardEvent) => {
     e.preventDefault();
     if (e.key === 'Escape') return finish();
-    const parts: string[] = [];
-    if (e.ctrlKey) parts.push('ctrl');
-    if (e.altKey) parts.push('alt');
-    if (e.shiftKey) parts.push('shift');
-    if (e.metaKey) parts.push('meta');
-    const k = e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
-    if (!['control', 'shift', 'alt', 'meta'].includes(k)) {
-      parts.push(k === ' ' ? 'space' : k);
-      seq.push(parts.join('+'));
-      btn.textContent = seq.join(' ');
-    }
+    if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+    // Same normalisation the viewer uses, so a captured key always matches.
+    seq.push(eventToChord(e));
+    btn.textContent = seq.join(' ');
   };
   const finish = async () => {
     window.removeEventListener('keydown', onKey, true);

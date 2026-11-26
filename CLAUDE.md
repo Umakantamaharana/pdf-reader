@@ -92,6 +92,34 @@ pdf-lib, flipping Y (pdf.js is top-left origin, pdf-lib is bottom-left).
   `pdfViewer.getImageRegions()` (replays the operator list, transform-tracked).
 - **TTS** lazy-loads Kokoro and falls back **WebGPU → WASM → native browser voice**;
   native is used while the model downloads. `space` is bound to play/pause.
+- **ONNX WASM path:** transformers.js sets `env.backends.onnx.wasm.wasmPaths` to a
+  jsDelivr URL on import; ORT then `import()`s its `.mjs` glue from the CDN, which the
+  CSP blocks (Kokoro silently fails → browser voice). `tts.ts` overrides it with
+  `{ wasm: <local ?url> }` — keep that override.
+- **TTS reads `readingText.ts` output, not raw page text:** it skips chart labels,
+  number tables, headers/footers and page numbers (`tts.skipNonProse`) and keeps a
+  spoken→page offset `map` for highlighting. Don't index page text with spoken offsets.
+- **Page canvases are double-buffered** (`doRenderPage` renders into a detached canvas
+  and swaps it in), sized to integer device pixels (`pixelBox`). Don't cache a page's
+  `<canvas>` element — it's replaced on every render; query `.pdf-canvas` instead.
+- **Toolbars live in the dock** (`ui/dock.ts`): the main toolbar and every sub-toolbar
+  (annotation, read-aloud, night mode) are faces of one drum; `dock().open(name)` rolls
+  forward, `close(name)` rolls back. Don't position bars yourself — register a face.
+- **Panels animate via `ui/motion.ts`:** use `dismiss(el)` to remove a popover (plays the
+  exit animation) and `setOpen(el, bool)` for persistent ones; don't toggle `hidden` /
+  call `.remove()` directly. Shape/timing tokens: `--bar-radius`, `--panel-radius`,
+  `--bar-height`, `--btn-size`, `--motion-in/out/ease` in `viewer.css`. The find bar is a
+  dock face like the other sub-toolbars.
+- **Zoom is a GPU transform, then a commit** (`pdfViewer.zoomTo/commitZoom`): pages live in
+  `.pdf-content` inside the scroller; a zoom previews as `transform: scale()` on it
+  (compositor-only, smooth on weak hardware), then the real boxes are resized around the same
+  anchor in one frame and re-rendered. `renderPage` is a no-op while `animating`. Append
+  pages to `content`, not the scroller.
+- **Text selection guard** (`viewer/selectionGuard.ts`, ported from pdf.js's
+  TextLayerBuilder): `.endOfContent` + `.selecting` stop selections jumping across span gaps.
+  Re-attach it whenever a text layer is re-rendered.
+- **Shortcuts:** `defaultKeys` may list alternatives with `|`; ctrl chords get ⌘ twins on
+  macOS; shifted symbols are matched by their character (`?`, `plus` for `+`).
 - **`src/shim/node-empty.ts`** stubs `fs/promises` and `path` (aliased in
   `vite.config.ts`) because kokoro-js statically imports them on a dead server path.
 

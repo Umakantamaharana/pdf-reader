@@ -52,7 +52,10 @@ export class DarkModeEngine {
   }
 
   apply(dm: AppSettings['darkMode']): void {
-    this.root.classList.toggle('dark-active', dm.enabled && dm.mode !== 'off');
+    const on = dm.enabled && dm.mode !== 'off';
+    this.root.classList.toggle('dark-active', on);
+    // Body-level flag so UI outside the scroller (sidebar thumbnails) follows too.
+    document.body.classList.toggle('lumen-dark', on);
     this.root.dataset.darkMode = dm.enabled ? dm.mode : 'off';
 
     // Image-protection overlays depend on the current dark settings.
@@ -73,9 +76,18 @@ export class DarkModeEngine {
         ? `invert(1) hue-rotate(180deg) brightness(${b}) contrast(${c})`
         : `brightness(${b}) contrast(${c})`;
 
+    // What a white page looks like after the filter. Used as the page box
+    // background so a page that hasn't painted yet (layout cycle, zoom,
+    // scrolling into an evicted page) shows dark instead of flashing white.
+    const white = dm.mode === 'smart-invert' ? 0 : Math.min(1, b);
+    const g = Math.round(clamp((white - 0.5) * c + 0.5, 0, 1) * 255);
+
     const css = `
       .pdf-scroll.dark-active { background: ${preset.background}; }
+      .pdf-scroll.dark-active .pdf-page { background: rgb(${g}, ${g}, ${g}); }
+      body.lumen-dark { --lumen-bg: ${preset.background}; }
       .pdf-scroll.dark-active .pdf-canvas { filter: ${invertFilter}; }
+      body.lumen-dark .sb-thumb { filter: ${invertFilter}; }
       ${
         dm.mode === 'custom-colors'
           ? `.pdf-scroll.dark-active .pdf-page::after {
@@ -102,9 +114,18 @@ export class DarkModeEngine {
   private async updateImageProtection(pageNum: number): Promise<void> {
     const el = this.pdf.getPageEl(pageNum);
     if (!el) return;
-    el.querySelector('.dark-img-wrap')?.remove();
+    const existing = el.querySelector<HTMLElement>('.dark-img-wrap');
     const dm = settings.get<AppSettings['darkMode']>('darkMode');
-    if (!dm.enabled || dm.mode !== 'smart-invert' || !dm.smartImageProtection) return;
+    // Patches are kept while dark mode is OFF too (they are a no-op then, see
+    // .pdf-image-protect in viewer.css) so toggling cross-fades images together
+    // with the page instead of photos flipping instantly mid-fade.
+    if (dm.mode !== 'smart-invert' || !dm.smartImageProtection) {
+      existing?.remove();
+      return;
+    }
+    // Keep a live wrap (rebuilding it would cut its fade transition short).
+    if (existing && existing.dataset.rot === String(this.pdf.state.rotation)) return;
+    existing?.remove();
     const regions = await this.pdf.getImageRegions(pageNum);
     if (!regions.length) return;
     const { width: pw, height: ph } = await this.pdf.getPageSize(pageNum);
@@ -134,8 +155,7 @@ export class DarkModeEngine {
   async cyclePreset(): Promise<void> {
     const dm = settings.get<AppSettings['darkMode']>('darkMode');
     const idx = dm.presets.findIndex((p) => p.id === dm.activePresetId);
-    const next = dm.presets[(idx + 1) % dm.presets.length];
-    await settings.patch({ 'darkMode.enabled': true, 'darkMode.activePresetId': next.id });
+    await applyPreset(dm.presets[(idx + 1) % dm.presets.length]);
   }
 
   async nudgeBrightness(delta: number): Promise<void> {
@@ -152,6 +172,14 @@ export class DarkModeEngine {
     this.unsub.forEach((u) => u());
     this.styleEl.remove();
   }
+}
+
+/** Activate a preset: enable dark mode and restore its brightness/contrast. */
+export async function applyPreset(p: ColorPreset): Promise<void> {
+  const patch: Record<string, unknown> = { 'darkMode.enabled': true, 'darkMode.activePresetId': p.id };
+  if (p.brightness != null) patch['darkMode.brightness'] = p.brightness;
+  if (p.contrast != null) patch['darkMode.contrast'] = p.contrast;
+  await settings.patch(patch);
 }
 
 function clamp(v: number, lo: number, hi: number): number {

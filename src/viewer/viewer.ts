@@ -20,11 +20,17 @@ import { AnnotationBar } from '../ui/annotationBar';
 import { DisplayPanel } from '../ui/displayPanel';
 import { SidebarPanel } from '../ui/sidebarPanel';
 import { CommandPalette } from '../ui/commandPalette';
+import { installTooltips } from '../ui/tooltip';
+import { dock } from '../ui/dock';
+import { dismiss } from '../ui/motion';
 import './viewer.css';
 
 async function main() {
   await settings.init();
 
+  // Apply the saved theme instantly on load (no cross-fade from light to dark).
+  document.body.classList.add('theme-boot');
+  installTooltips();
   const scroll = document.getElementById('scroll')!;
   const pdf = new PDFViewer(scroll);
   const dark = new DarkModeEngine(scroll, pdf);
@@ -59,6 +65,7 @@ async function main() {
   pdf.state.rotation = settings.get('viewing.defaultRotation');
 
   registerCommands(pdf, dark, palette, search, annot, display, tts);
+  requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('theme-boot')));
 
   // Re-apply keybindings whenever the keymap changes in settings.
   settings.subscribe('shortcuts.keymap', () => shortcuts.rebuild());
@@ -71,6 +78,18 @@ async function main() {
     rt = window.setTimeout(() => void pdf.handleResize(), 150);
   });
 
+  // Re-render crisply when devicePixelRatio changes (browser zoom, or dragging
+  // the window to a monitor with different scaling) — otherwise canvases stay
+  // rasterised for the old DPR and small text looks blurry/jagged.
+  const watchDpr = () => {
+    const mq = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    mq.addEventListener('change', () => {
+      void pdf.handleResize(true);
+      watchDpr();
+    }, { once: true });
+  };
+  watchDpr();
+
   // Ctrl/⌘ + wheel, and trackpad pinch (which the browser reports as wheel +
   // ctrlKey), zoom the document. rAF-throttled so a burst of wheel events does
   // at most one re-render per frame.
@@ -82,12 +101,13 @@ async function main() {
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
       pendingZoom += -e.deltaY;
+      const at = { x: e.clientX, y: e.clientY }; // keep the spot under the cursor still
       if (!zoomRaf) {
         zoomRaf = requestAnimationFrame(() => {
           zoomRaf = 0;
           const factor = Math.exp(pendingZoom * 0.0015);
           pendingZoom = 0;
-          void pdf.setZoom(pdf.state.scale * factor);
+          void pdf.setZoom(pdf.state.scale * factor, { at });
         });
       }
     },
@@ -138,6 +158,8 @@ function registerCommands(
     'view.zoomOut': () => pdf.zoomOut(),
     'view.fitWidth': () => pdf.setFit('width'),
     'view.fitPage': () => pdf.setFit('page'),
+    'view.fitHeight': () => pdf.setFit('height'),
+    'view.actualSize': () => pdf.actualSize(),
     'view.rotateCW': () => pdf.rotate(90),
     'view.rotateCCW': () => pdf.rotate(-90),
     'view.cycleLayout': () => pdf.cycleLayout(),
@@ -166,6 +188,9 @@ function registerCommands(
     'annot.textbox': () => annot.setTool('textbox'),
     'annot.stamp': () => annot.loadStamp(),
     'annot.eraser': () => annot.setTool('eraser'),
+    'annot.clearAll': () => annot.clearAll(),
+    'annot.clearPage': () => annot.clearPage(),
+    'annot.clearView': () => annot.clearInView(),
     'annot.undo': () => annot.undo(),
     'annot.redo': () => annot.redo(),
     'annot.export': () => annot.exportPdf(),
@@ -189,6 +214,17 @@ function registerCommands(
     'app.commandPalette': () => palette.toggle(),
     'app.settings': () => chrome.runtime.openOptionsPage?.(),
     'app.help': () => palette.show(),
+    // Esc rolls the topmost sub-toolbar back to the main toolbar (fields like
+    // the search box and the palette handle their own Esc first).
+    'app.escape': () => {
+      const a = document.activeElement as HTMLElement | null;
+      if (a && (a.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(a.tagName))) return;
+      const top = dock().top();
+      if (top === 'display') display.close();
+      else if (top === 'search') search.close();
+      else if (top === 'tts') tts.close();
+      else if (top === 'annot' && annot.isActive()) annot.toggleMode();
+    },
 
     // Later-step placeholders so bindings resolve without throwing.
     ...stubbed(['app.bookmark']),
@@ -255,12 +291,15 @@ function showError(msg: string) {
   el.textContent = `Could not open PDF: ${msg}`;
 }
 
+/** One message at a time, above the toolbar; fades in and out (ui/motion.ts). */
 function toast(msg: string) {
+  document.querySelectorAll('.lumen-toast:not(.is-leaving)').forEach((t) => dismiss(t));
   const t = document.createElement('div');
   t.className = 'lumen-toast';
+  t.setAttribute('role', 'status');
   t.textContent = msg;
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), 1600);
+  setTimeout(() => dismiss(t), Math.min(4000, 1400 + msg.length * 30));
 }
 
 void main();

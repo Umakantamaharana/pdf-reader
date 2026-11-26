@@ -7,13 +7,13 @@
  * so adding a new field here automatically back-fills existing users on upgrade.
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /** A keybinding is a chord ("ctrl+shift+k") or a Vim-style sequence ("g g"). */
 export type KeyBinding = string;
 
 export type LayoutMode = 'single' | 'two-page' | 'continuous';
-export type FitMode = 'width' | 'page' | 'auto' | 'actual';
+export type FitMode = 'width' | 'height' | 'page' | 'auto' | 'actual';
 export type InvertMode = 'off' | 'smart-invert' | 'custom-colors';
 export type ToolbarPosition = 'floating' | 'docked-top' | 'docked-bottom';
 export type TtsEngine = 'kokoro' | 'piper' | 'native';
@@ -25,6 +25,19 @@ export interface ColorPreset {
   name: string;
   background: string; // CSS color for the page backdrop
   foreground: string; // CSS color for text/foreground after inversion
+  /** Brightness/contrast this preset applies when chosen. */
+  brightness?: number;
+  contrast?: number;
+}
+
+/** Annotation colour per tool family (see AppSettings.annotation.colors). */
+export interface ToolColors {
+  highlight: string;
+  mark: string; // underline + strikethrough
+  pen: string;
+  shape: string; // box, circle, arrow
+  text: string; // text box
+  note: string; // sticky-note marker
 }
 
 export interface AppSettings {
@@ -80,6 +93,12 @@ export interface AppSettings {
     penColor: string;
     penWidth: number;
     shapeColor: string;
+    /**
+     * Colour per tool, kept separately for each theme so a pick made on a dark
+     * page doesn't leak into light mode (and vice versa). Values are what the
+     * user sees on screen in that theme. Supersedes highlight/pen/shapeColor.
+     */
+    colors: { light: ToolColors; dark: ToolColors };
     autosave: boolean;
     middleClickEraser: {
       enabled: boolean;
@@ -102,6 +121,9 @@ export interface AppSettings {
     fallbackToNativeWhileLoading: boolean;
     sentencePauseMs: number;
     preferWebGPU: boolean; // fall back to WASM automatically if unavailable
+    /** Read like a person: skip chart/axis labels, tables of numbers, running
+     *  headers/footers, page numbers and tiny print. */
+    skipNonProse: boolean;
   };
 
   ui: {
@@ -140,12 +162,18 @@ export interface Command {
   when?: string;
 }
 
-export const DEFAULT_PRESETS: ColorPreset[] = [
-  { id: 'pure-black', name: 'Pure Black', background: '#000000', foreground: '#e8e8e8' },
-  { id: 'dark-slate', name: 'Dark Slate', background: '#1e222a', foreground: '#d6dae0' },
-  { id: 'warm-sepia', name: 'Warm Sepia', background: '#f4ecd8', foreground: '#4a3f2f' },
-  { id: 'night-dim', name: 'Night Dim', background: '#0d1117', foreground: '#9da7b3' },
-];
+/** The single built-in dark theme: full brightness, softened contrast (0.6)
+ *  so inverted pages read as light-grey text on charcoal rather than harsh
+ *  white-on-black. */
+export const SOFT_NIGHT: ColorPreset = {
+  id: 'soft-night',
+  name: 'Soft Night',
+  background: '#1b1c1f',
+  foreground: '#cccccc',
+  brightness: 1,
+  contrast: 0.6,
+};
+export const DEFAULT_PRESETS: ColorPreset[] = [SOFT_NIGHT];
 
 /**
  * Canonical command registry. Keep ids stable — they are persisted in keymaps
@@ -153,35 +181,35 @@ export const DEFAULT_PRESETS: ColorPreset[] = [
  */
 export const COMMANDS: Command[] = [
   // Navigation
-  { id: 'nav.nextPage', title: 'Next Page', category: 'Navigation', defaultKeys: 'j' },
-  { id: 'nav.prevPage', title: 'Previous Page', category: 'Navigation', defaultKeys: 'k' },
-  { id: 'nav.firstPage', title: 'Go to First Page', category: 'Navigation', defaultKeys: 'g g' },
-  { id: 'nav.lastPage', title: 'Go to Last Page', category: 'Navigation', defaultKeys: 'shift+g' },
+  { id: 'nav.nextPage', title: 'Next Page', category: 'Navigation', defaultKeys: 'right | j' },
+  { id: 'nav.prevPage', title: 'Previous Page', category: 'Navigation', defaultKeys: 'left | k' },
+  { id: 'nav.firstPage', title: 'Go to First Page', category: 'Navigation', defaultKeys: 'home | g g' },
+  { id: 'nav.lastPage', title: 'Go to Last Page', category: 'Navigation', defaultKeys: 'end | shift+g' },
   { id: 'nav.gotoPage', title: 'Go to Page…', category: 'Navigation', defaultKeys: 'ctrl+g' },
-  { id: 'nav.scrollDown', title: 'Scroll Down (half page)', category: 'Navigation', defaultKeys: 'd' },
-  { id: 'nav.scrollUp', title: 'Scroll Up (half page)', category: 'Navigation', defaultKeys: 'u' },
+  { id: 'nav.scrollDown', title: 'Scroll Down (one screen)', category: 'Navigation', defaultKeys: 'space | d' },
+  { id: 'nav.scrollUp', title: 'Scroll Up (one screen)', category: 'Navigation', defaultKeys: 'shift+space | u' },
   { id: 'nav.lineDown', title: 'Scroll Down (line)', category: 'Navigation', defaultKeys: 'down' },
   { id: 'nav.lineUp', title: 'Scroll Up (line)', category: 'Navigation', defaultKeys: 'up' },
 
   // View
-  { id: 'view.zoomIn', title: 'Zoom In', category: 'View', defaultKeys: 'ctrl+=' },
+  { id: 'view.zoomIn', title: 'Zoom In', category: 'View', defaultKeys: 'ctrl+= | ctrl+plus' },
   { id: 'view.zoomOut', title: 'Zoom Out', category: 'View', defaultKeys: 'ctrl+-' },
-  { id: 'view.fitWidth', title: 'Fit to Width', category: 'View', defaultKeys: 'shift+w' },
-  { id: 'view.fitPage', title: 'Fit to Page', category: 'View', defaultKeys: 'shift+f' },
-  { id: 'view.rotateCW', title: 'Rotate Clockwise', category: 'View', defaultKeys: 'r' },
-  { id: 'view.rotateCCW', title: 'Rotate Counter-Clockwise', category: 'View', defaultKeys: 'shift+r' },
+  { id: 'view.fitWidth', title: 'Fit to Width', category: 'View', defaultKeys: 'ctrl+2 | w' },
+  { id: 'view.fitPage', title: 'Fit Whole Page', category: 'View', defaultKeys: 'ctrl+3' },
+  { id: 'view.rotateCW', title: 'Rotate Clockwise', category: 'View', defaultKeys: 'r | ctrl+]' },
+  { id: 'view.rotateCCW', title: 'Rotate Counter-Clockwise', category: 'View', defaultKeys: 'shift+r | ctrl+[' },
   { id: 'view.cycleLayout', title: 'Cycle Layout (Single/Two/Continuous)', category: 'View', defaultKeys: 'l' },
   { id: 'view.presentation', title: 'Toggle Presentation Mode', category: 'View', defaultKeys: 'f5' },
-  { id: 'view.toggleSidebar', title: 'Toggle Sidebar', category: 'View', defaultKeys: 's' },
-  { id: 'view.toggleToolbar', title: 'Toggle Toolbar', category: 'View', defaultKeys: 't' },
+  { id: 'view.toggleSidebar', title: 'Toggle Sidebar', category: 'View', defaultKeys: 's | f4' },
+  { id: 'view.toggleToolbar', title: 'Toggle Toolbar', category: 'View', defaultKeys: 't | f8' },
   { id: 'view.distractionFree', title: 'Toggle Distraction-Free Mode', category: 'View', defaultKeys: 'z z' },
 
   // Dark Mode
-  { id: 'dark.toggle', title: 'Toggle Dark / Invert', category: 'Dark Mode', defaultKeys: 'shift+i' },
-  { id: 'dark.panel', title: 'Open Display / Color Panel', category: 'Dark Mode', defaultKeys: 'shift+d' },
+  { id: 'dark.toggle', title: 'Toggle Dark / Invert', category: 'Dark Mode', defaultKeys: 'shift+d' },
+  { id: 'dark.panel', title: 'Open Night Mode Toolbar', category: 'Dark Mode', defaultKeys: 'alt+shift+d' },
   { id: 'dark.cyclePreset', title: 'Cycle Color Preset', category: 'Dark Mode', defaultKeys: 'shift+p' },
-  { id: 'dark.brightnessUp', title: 'Increase Brightness', category: 'Dark Mode', defaultKeys: 'shift+=' },
-  { id: 'dark.brightnessDown', title: 'Decrease Brightness', category: 'Dark Mode', defaultKeys: 'shift+-' },
+  { id: 'dark.brightnessUp', title: 'Increase Brightness', category: 'Dark Mode', defaultKeys: 'alt+]' },
+  { id: 'dark.brightnessDown', title: 'Decrease Brightness', category: 'Dark Mode', defaultKeys: 'alt+[' },
 
   // Annotation
   { id: 'annot.toggleMode', title: 'Toggle Annotation Mode', category: 'Annotation', defaultKeys: 'a' },
@@ -197,14 +225,14 @@ export const COMMANDS: Command[] = [
   { id: 'annot.stamp', title: 'Image / Signature Stamp', category: 'Annotation', defaultKeys: 'shift+m' },
   { id: 'annot.eraser', title: 'Eraser Tool', category: 'Annotation', defaultKeys: 'e' },
   { id: 'annot.undo', title: 'Undo', category: 'Annotation', defaultKeys: 'ctrl+z' },
-  { id: 'annot.redo', title: 'Redo', category: 'Annotation', defaultKeys: 'ctrl+shift+z' },
+  { id: 'annot.redo', title: 'Redo', category: 'Annotation', defaultKeys: 'ctrl+shift+z | ctrl+y' },
   { id: 'annot.export', title: 'Export Annotated PDF', category: 'Annotation', defaultKeys: 'ctrl+s' },
 
   // TTS
-  { id: 'tts.playPause', title: 'Play / Pause Reading', category: 'TTS', defaultKeys: 'space' },
-  { id: 'tts.stop', title: 'Stop Reading', category: 'TTS', defaultKeys: 'shift+space' },
-  { id: 'tts.nextSentence', title: 'Next Sentence', category: 'TTS', defaultKeys: 'ctrl+right' },
-  { id: 'tts.prevSentence', title: 'Previous Sentence', category: 'TTS', defaultKeys: 'ctrl+left' },
+  { id: 'tts.playPause', title: 'Read Aloud: Play / Pause', category: 'TTS', defaultKeys: 'ctrl+shift+u | mediaplaypause' },
+  { id: 'tts.stop', title: 'Stop Reading', category: 'TTS', defaultKeys: 'mediastop' },
+  { id: 'tts.nextSentence', title: 'Next Sentence', category: 'TTS', defaultKeys: 'ctrl+right | mediatracknext' },
+  { id: 'tts.prevSentence', title: 'Previous Sentence', category: 'TTS', defaultKeys: 'ctrl+left | mediatrackprevious' },
   { id: 'tts.speedUp', title: 'Speak Faster', category: 'TTS', defaultKeys: ']' },
   { id: 'tts.speedDown', title: 'Speak Slower', category: 'TTS', defaultKeys: '[' },
   { id: 'tts.readFromCursor', title: 'Read From Selection / Cursor', category: 'TTS', defaultKeys: 'shift+enter' },
@@ -212,14 +240,22 @@ export const COMMANDS: Command[] = [
   // Search
   { id: 'search.open', title: 'Find in Document', category: 'Search', defaultKeys: 'ctrl+f' },
   { id: 'search.openSlash', title: 'Find (Vim)', category: 'Search', defaultKeys: '/' },
-  { id: 'search.next', title: 'Next Match', category: 'Search', defaultKeys: 'ctrl+n' },
-  { id: 'search.prev', title: 'Previous Match', category: 'Search', defaultKeys: 'ctrl+shift+n' },
+  { id: 'search.next', title: 'Next Match', category: 'Search', defaultKeys: 'f3' },
+  { id: 'search.prev', title: 'Previous Match', category: 'Search', defaultKeys: 'shift+f3' },
 
   // Settings / General
-  { id: 'app.commandPalette', title: 'Open Command Palette', category: 'General', defaultKeys: 'ctrl+k' },
+  { id: 'app.commandPalette', title: 'Open Command Palette', category: 'General', defaultKeys: 'ctrl+k | ctrl+shift+p' },
   { id: 'app.settings', title: 'Open Settings', category: 'Settings', defaultKeys: 'ctrl+,' },
   { id: 'app.bookmark', title: 'Toggle Bookmark on Current Page', category: 'General', defaultKeys: 'b' },
-  { id: 'app.help', title: 'Show Keyboard Shortcuts', category: 'General', defaultKeys: '?' },
+  { id: 'app.help', title: 'Show Keyboard Shortcuts', category: 'General', defaultKeys: '? | ctrl+/' },
+
+  // Appended (ids are persisted — keep appending, never reorder).
+  { id: 'view.fitHeight', title: 'Fit to Height', category: 'View', defaultKeys: 'ctrl+0' },
+  { id: 'view.actualSize', title: 'Actual Size (100%)', category: 'View', defaultKeys: 'ctrl+1' },
+  { id: 'app.escape', title: 'Close Toolbar / Exit Mode', category: 'General', defaultKeys: 'esc' },
+  { id: 'annot.clearAll', title: 'Erase All Annotations', category: 'Annotation', defaultKeys: 'ctrl+shift+del' },
+  { id: 'annot.clearPage', title: 'Erase Annotations on This Page', category: 'Annotation', defaultKeys: 'shift+del' },
+  { id: 'annot.clearView', title: 'Erase Annotations in View', category: 'Annotation', defaultKeys: '' },
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -240,8 +276,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     mode: 'smart-invert',
     smartImageProtection: true,
     brightness: 1,
-    contrast: 1,
-    activePresetId: 'dark-slate',
+    contrast: 0.6,
+    activePresetId: 'soft-night',
     presets: DEFAULT_PRESETS,
   },
   annotation: {
@@ -252,6 +288,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
     penColor: '#ff5252',
     penWidth: 2,
     shapeColor: '#4dabf7',
+    // Ink is black on paper / white on a dark page; the pen is green in dark
+    // mode so handwriting stands out from the (light grey) text.
+    colors: {
+      light: { highlight: '#ffe066', mark: '#000000', pen: '#000000', shape: '#000000', text: '#000000', note: '#ffe066' },
+      dark: { highlight: '#ffe066', mark: '#ffffff', pen: '#4ade80', shape: '#ffffff', text: '#ffffff', note: '#ffe066' },
+    },
     autosave: true,
     middleClickEraser: { enabled: true, global: false, radius: 12, eraseWholeStroke: true },
   },
@@ -267,6 +309,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     fallbackToNativeWhileLoading: true,
     sentencePauseMs: 120,
     preferWebGPU: true,
+    skipNonProse: true,
   },
   ui: {
     theme: 'system',

@@ -7,6 +7,10 @@
  *  - Leader-key sequences ("<leader> t ...") when shortcuts.leaderKey is set.
  *  - Bindings come from COMMANDS defaultKeys, overridden per-command by
  *    settings.shortcuts.keymap. Rebinding is live — call rebuild() after a change.
+ *  - A binding may list alternatives separated by "|" ("ctrl+= | ctrl+plus").
+ *  - On macOS every ctrl chord is also bound with ⌘ (meta), as Mac apps expect.
+ *  - Shifted symbols are matched by the character they produce: "?" not
+ *    "shift+/", and "+" is spelled "plus" (it would clash with the separator).
  *  - Conflict detection: detectConflicts() reports chords bound to >1 command.
  *  - Context guards: skips input/textarea/contenteditable unless configured, and
  *    honors each command's optional `when` guard via a pluggable context resolver.
@@ -53,9 +57,24 @@ export function eventToChord(ev: KeyboardEvent): string {
     Backspace: 'backspace',
     Delete: 'del',
   };
+  if (key === '+') key = 'plus';
+  // Shift is already "spent" on symbols: Shift+/ arrives as "?". Dropping it
+  // makes a "?" binding match (it never did before), letters keep shift.
+  const isSymbol = key.length === 1 && key !== ' ' && key.toLowerCase() === key.toUpperCase() && !/[0-9]/.test(key);
+  if (isSymbol || key === 'plus') {
+    const i = parts.indexOf('shift');
+    if (i >= 0) parts.splice(i, 1);
+  }
   key = named[key] ?? key.toLowerCase();
   parts.push(key);
   return parts.join('+');
+}
+
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
+/** Split a stored binding into its alternatives ("a | b" → ["a", "b"]). */
+export function splitAlternatives(binding: string): string[] {
+  return binding.split('|').map((b) => b.trim()).filter(Boolean);
 }
 
 /** True if the event target is an editable field we should normally ignore. */
@@ -94,8 +113,19 @@ export class ShortcutManager {
     for (const cmd of COMMANDS) {
       const binding = overrides[cmd.id] ?? cmd.defaultKeys;
       if (!binding) continue;
-      this.bindings.set(this.canonicalizeBinding(binding), cmd.id);
+      for (const alt of this.expand(binding)) if (!this.bindings.has(alt)) this.bindings.set(alt, cmd.id);
     }
+  }
+
+  /** Canonical forms of every alternative in a binding (+ ⌘ twins on macOS). */
+  private expand(binding: string): string[] {
+    const out: string[] = [];
+    for (const alt of splitAlternatives(binding)) {
+      const c = this.canonicalizeBinding(alt);
+      out.push(c);
+      if (IS_MAC && /(^|[ +])ctrl\+/.test(c)) out.push(this.canonicalizeBinding(c.replace(/(^|[ +])ctrl\+/g, '$1meta+')));
+    }
+    return out;
   }
 
   /** Normalize a stored binding ("G G", "Ctrl+K") to canonical form. */
@@ -220,10 +250,16 @@ export class ShortcutManager {
 
   // ---- Introspection / editing helpers (used by the Settings keymap UI) --
 
-  /** Current effective binding for a command id, if any. */
+  /** Primary (first) effective binding for a command id, if any. */
   bindingFor(commandId: string): string | undefined {
-    for (const [binding, id] of this.bindings) if (id === commandId) return binding;
-    return undefined;
+    return this.bindingsFor(commandId)[0];
+  }
+
+  /** Every effective binding for a command id, in declaration order. */
+  bindingsFor(commandId: string): string[] {
+    const out: string[] = [];
+    for (const [binding, id] of this.bindings) if (id === commandId) out.push(binding);
+    return out;
   }
 
   /** Report every binding assigned to more than one command. */
@@ -233,8 +269,7 @@ export class ShortcutManager {
     for (const cmd of COMMANDS) {
       const raw = overrides[cmd.id] ?? cmd.defaultKeys;
       if (!raw) continue;
-      const b = this.canonicalizeBinding(raw);
-      (byBinding.get(b) ?? byBinding.set(b, []).get(b)!).push(cmd.id);
+      for (const b of this.expand(raw)) (byBinding.get(b) ?? byBinding.set(b, []).get(b)!).push(cmd.id);
     }
     return [...byBinding.entries()]
       .filter(([, ids]) => ids.length > 1)
@@ -246,8 +281,8 @@ export class ShortcutManager {
    * binding is already taken (caller decides whether to override).
    */
   async rebind(commandId: string, newBinding: string, force = false): Promise<{ ok: boolean; conflictWith?: string }> {
-    const canonical = this.canonicalizeBinding(newBinding);
-    const existing = this.bindings.get(canonical);
+    const canonical = splitAlternatives(newBinding).map((b) => this.canonicalizeBinding(b)).join(' | ');
+    const existing = this.expand(canonical).map((b) => this.bindings.get(b)).find((id) => id && id !== commandId);
     if (existing && existing !== commandId && !force) {
       return { ok: false, conflictWith: existing };
     }

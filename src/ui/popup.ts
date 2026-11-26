@@ -1,4 +1,12 @@
-/** popup.ts — Browser-action popup: open a URL in the reader or jump to settings. */
+/** popup.ts — Browser-action popup: open a URL in the reader or jump to settings.
+ *  Follows the reader's light/dark theme (dark while dark mode is on). */
+
+import { settings } from '../core/settings';
+
+void settings.init().then(() => {
+  const dm = settings.get<any>('darkMode');
+  document.body.classList.toggle('lumen-dark', !!dm?.enabled && dm?.mode !== 'off');
+});
 
 const urlInput = document.getElementById('url') as HTMLInputElement;
 

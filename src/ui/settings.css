@@ -1,34 +1,68 @@
+/* Theme tokens: light by default, dark while the reader's dark mode is on
+   (settings.ts toggles body.lumen-dark). Neutral accent — no brand blue. */
 :root {
-  --bg: #1a1d24;
-  --accent: #4dabf7;
-  --text: #e8ebf0;
-  --muted: #9aa3af;
-  --danger: #e0574a;
+  --bg-top: #f3f4f6;
+  --bg-bottom: #e4e5e9;
+  --accent: #26282e;
+  --accent-ink: #ffffff;
+  --text: #1d1f24;
+  --muted: #6b7079;
+  --danger: #c8443a;
+  --switch-off: rgba(0, 0, 0, 0.16);
+  --hairline: rgba(0, 0, 0, 0.07);
+  --option-bg: #ffffff;
+  --option-checked: #dcdde1;
+  --scheme: light;
 
-  /* Glass surface tokens — matched to the viewer UI. */
-  --glass-bg: rgba(36, 40, 50, 0.55);
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-soft: rgba(0, 0, 0, 0.04);
+  --glass-border: rgba(0, 0, 0, 0.09);
+  --glass-highlight: rgba(255, 255, 255, 0.8);
+  --glass-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+  --glass-blur: blur(18px) saturate(160%);
+  --glass-hover: rgba(0, 0, 0, 0.06);
+  --theme-fade: 0.45s;
+}
+body.lumen-dark {
+  --bg-top: #22252b;
+  --bg-bottom: #16181c;
+  --accent: #e6e8eb;
+  --accent-ink: #17181b;
+  --text: #e6e8eb;
+  --muted: #9aa0a8;
+  --danger: #e0574a;
+  --switch-off: rgba(255, 255, 255, 0.16);
+  --hairline: rgba(255, 255, 255, 0.06);
+  --option-bg: #23252a;
+  --option-checked: #3a3d44;
+  --scheme: dark;
+
+  --glass-bg: rgba(36, 39, 46, 0.55);
   --glass-soft: rgba(255, 255, 255, 0.05);
   --glass-border: rgba(255, 255, 255, 0.12);
   --glass-highlight: rgba(255, 255, 255, 0.08);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  --glass-blur: blur(18px) saturate(160%);
   --glass-hover: rgba(255, 255, 255, 0.1);
 }
+body.theme-boot, body.theme-boot * { transition: none !important; }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
   color: var(--text);
-  color-scheme: dark;
+  color-scheme: var(--scheme);
   font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   min-height: 100vh;
-  background:
-    radial-gradient(1100px 600px at 15% -10%, rgba(77, 171, 247, 0.16), transparent 60%),
-    radial-gradient(900px 600px at 100% 0%, rgba(126, 87, 247, 0.12), transparent 55%),
-    linear-gradient(160deg, #22262f 0%, #16181d 100%);
+  background: linear-gradient(160deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
   background-attachment: fixed;
+  transition: color var(--theme-fade) ease;
 }
+.settings-header, .panel, select, input, .keymap-key, .header-actions button {
+  transition: background-color var(--theme-fade) ease, color var(--theme-fade) ease,
+    border-color var(--theme-fade) ease, box-shadow var(--theme-fade) ease;
+}
+input[type=checkbox], input[type=radio] { accent-color: var(--accent); }
 
 .settings-shell { max-width: 920px; margin: 0 auto; padding: 24px 20px 72px; }
 
@@ -53,7 +87,7 @@ body {
 .header-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .header-actions button {
   padding: 8px 15px; border-radius: 10px; border: none; cursor: pointer;
-  background: var(--accent); color: #04121f; font-weight: 600;
+  background: var(--accent); color: var(--accent-ink); font-weight: 600;
   transition: filter 0.14s ease, background 0.14s ease;
 }
 .header-actions button:hover { filter: brightness(1.08); }
@@ -62,7 +96,7 @@ body {
 }
 .header-actions .ghost:hover { background: var(--glass-hover); }
 .header-actions .danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
-.header-actions .danger:hover { background: rgba(224, 87, 74, 0.12); }
+.header-actions .danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
 
 .settings-panels { display: flex; flex-direction: column; gap: 18px; }
 .panel {
@@ -78,7 +112,7 @@ body {
 
 .control {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 9px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 9px 0; border-bottom: 1px solid var(--hairline);
 }
 .control-label { color: var(--text); }
 .control-input { color: var(--text); }
@@ -89,6 +123,10 @@ select, input[type=number] {
   outline: none;
 }
 select:focus, input[type=number]:focus { border-color: var(--accent); }
+/* Opaque dark popup list (options otherwise render on a white sheet). */
+select { color-scheme: var(--scheme); }
+select option, select optgroup { background-color: var(--option-bg); color: var(--text); }
+select option:checked { background-color: var(--option-checked); }
 input[type=color] {
   width: 40px; height: 28px; padding: 0; border: 1px solid var(--glass-border);
   border-radius: 7px; background: none; cursor: pointer;
@@ -99,22 +137,23 @@ input[type=range] { accent-color: var(--accent); }
 
 .switch {
   appearance: none; width: 42px; height: 24px; border-radius: 24px;
-  background: rgba(255, 255, 255, 0.16); position: relative; cursor: pointer;
+  background: var(--switch-off); position: relative; cursor: pointer;
   transition: background 0.15s; flex: none;
 }
 .switch::after {
   content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
-  border-radius: 50%; background: #fff; transition: transform 0.15s;
+  border-radius: 50%; background: #fff; transition: transform 0.15s, background 0.15s;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 .switch:checked { background: var(--accent); }
+.switch:checked::after { background: var(--accent-ink); }
 .switch:checked::after { transform: translateX(18px); }
 
 .muted { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
 .keymap { display: flex; flex-direction: column; }
 .keymap-row {
   display: grid; grid-template-columns: 1fr auto auto; align-items: center;
-  gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--hairline);
 }
 .keymap-title { color: var(--text); }
 .keymap-key {

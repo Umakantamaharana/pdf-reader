@@ -15,6 +15,7 @@
  * globally when enabled in settings, otherwise only in annotation mode.
  */
 
+import { dismiss } from '../ui/motion';
 import { PDFViewer } from './pdfViewer';
 import { settings } from '../core/settings';
 
@@ -81,6 +82,28 @@ export class AnnotationManager {
 
     // Text marks are captured on mouseup when a text tool is active.
     document.addEventListener('mouseup', () => this.captureSelectionMark());
+
+    // Black/white annotations swap with the theme (see swapBW); re-paint all
+    // overlays when dark mode flips (not on every brightness/contrast nudge).
+    this.dark = isDarkUi();
+    settings.subscribe('darkMode', () => {
+      const d = isDarkUi();
+      if (d === this.dark) return;
+      this.dark = d;
+      for (const p of this.overlays.keys()) void this.renderPage(p);
+    });
+  }
+
+  private dark = false;
+  /** Colour to paint a stored annotation colour with in the current theme. */
+  private shown(c: string): string {
+    return this.dark ? swapBW(c) : c;
+  }
+  /** Colour to STORE for a colour picked in the current theme. Annotations are
+   *  stored in "paper" (light-theme) colours so export and light mode match; a
+   *  white pen picked on a dark page is stored as black, and vice versa. */
+  private stored(c: string): string {
+    return this.dark ? swapBW(c) : c;
   }
 
   /** Load persisted annotations for the current document and paint them. */
@@ -132,11 +155,15 @@ export class AnnotationManager {
 
   /** Settings dot-path whose color the given tool draws with. */
   colorPathForTool(tool: AnnotTool = this.tool): string | null {
-    if (['highlight', 'underline', 'strike'].includes(tool)) return 'annotation.highlightColor';
-    if (tool === 'pen') return 'annotation.penColor';
-    if (['rectangle', 'ellipse', 'arrow'].includes(tool)) return 'annotation.shapeColor';
-    if (tool === 'note') return 'annotation.highlightColor';
-    if (tool === 'textbox') return 'annotation.penColor';
+    const slot =
+      tool === 'highlight' ? 'highlight'
+      : tool === 'underline' || tool === 'strike' ? 'mark'
+      : tool === 'pen' ? 'pen'
+      : tool === 'rectangle' || tool === 'ellipse' || tool === 'arrow' ? 'shape'
+      : tool === 'textbox' ? 'text'
+      : tool === 'note' ? 'note'
+      : null;
+    if (slot) return `annotation.colors.${isDarkUi() ? 'dark' : 'light'}.${slot}`;
     return null;
   }
 
@@ -210,14 +237,14 @@ export class AnnotationManager {
         if (a.type === 'highlight') {
           d.style.top = `${r.y * 100}%`;
           d.style.height = `${r.h * 100}%`;
-          d.style.background = a.color;
+          d.style.background = this.shown(a.color);
           d.style.opacity = String(a.opacity);
         } else {
           const yLine = a.type === 'underline' ? r.y + r.h : r.y + r.h / 2;
           d.style.top = `${yLine * 100}%`;
           d.style.height = `2px`;
           d.style.marginTop = a.type === 'underline' ? '-2px' : '-1px';
-          d.style.background = a.color;
+          d.style.background = this.shown(a.color);
         }
         d.dataset.id = a.id;
         ov.hl.appendChild(d);
@@ -226,7 +253,7 @@ export class AnnotationManager {
       const pl = document.createElementNS(SVGNS, 'polyline');
       pl.setAttribute('points', a.points.map((p) => `${p.x},${p.y}`).join(' '));
       pl.setAttribute('fill', 'none');
-      pl.setAttribute('stroke', a.color);
+      pl.setAttribute('stroke', this.shown(a.color));
       pl.setAttribute('stroke-width', String(a.width));
       pl.setAttribute('stroke-linecap', 'round');
       pl.setAttribute('stroke-linejoin', 'round');
@@ -239,7 +266,7 @@ export class AnnotationManager {
       r.setAttribute('width', String(a.box.w));
       r.setAttribute('height', String(a.box.h));
       r.setAttribute('fill', 'none');
-      r.setAttribute('stroke', a.color);
+      r.setAttribute('stroke', this.shown(a.color));
       r.setAttribute('stroke-width', String(a.width));
       r.dataset.id = a.id;
       ov.svg.appendChild(r);
@@ -250,7 +277,7 @@ export class AnnotationManager {
       e.setAttribute('rx', String(a.box.w / 2));
       e.setAttribute('ry', String(a.box.h / 2));
       e.setAttribute('fill', 'none');
-      e.setAttribute('stroke', a.color);
+      e.setAttribute('stroke', this.shown(a.color));
       e.setAttribute('stroke-width', String(a.width));
       e.dataset.id = a.id;
       ov.svg.appendChild(e);
@@ -262,7 +289,7 @@ export class AnnotationManager {
       m.dataset.id = a.id;
       m.style.left = `${(a.at.x / ov.pageW) * 100}%`;
       m.style.top = `${(a.at.y / ov.pageH) * 100}%`;
-      m.style.background = a.color;
+      m.style.background = this.shown(a.color);
       m.title = a.text || 'Note';
       m.textContent = '🗨';
       m.addEventListener('click', (e) => { e.stopPropagation(); this.openNoteEditor(a, m); });
@@ -272,15 +299,17 @@ export class AnnotationManager {
       const t = document.createElement('div');
       t.className = 'annot-textbox';
       t.dataset.id = a.id;
-      t.contentEditable = 'true';
+      // plaintext-only: Enter inserts a newline instead of <div>/<br> markup.
+      t.contentEditable = 'plaintext-only';
+      t.spellcheck = false;
+      t.dataset.placeholder = 'Type here…';
       t.textContent = a.text;
       t.style.left = `${(a.at.x / ov.pageW) * 100}%`;
       t.style.top = `${(a.at.y / ov.pageH) * 100}%`;
-      t.style.color = a.color;
+      t.style.color = this.shown(a.color);
       t.style.fontSize = `calc(var(--scale-factor, 1) * ${a.fontPts}px)`;
       t.addEventListener('input', () => { (a as any).text = t.textContent ?? ''; this.scheduleSave(); });
-      t.addEventListener('pointerdown', (e) => e.stopPropagation()); // don't start a new placement
-      this.makeDraggable(t, a.page, (pt) => { (a as any).at = pt; this.scheduleSave(); }, true);
+      this.wireTextbox(t, a);
       ov.dom.appendChild(t);
     } else if (a.type === 'stamp') {
       const img = document.createElement('img');
@@ -294,6 +323,53 @@ export class AnnotationManager {
       this.makeDraggable(img, a.page, (pt) => { (a as any).box = { ...a.box, x: pt.x, y: pt.y }; this.scheduleSave(); });
       ov.dom.appendChild(img);
     }
+  }
+
+  /**
+   * Text box interaction: a left click edits (caret at the click), a left drag
+   * moves the box (annotation mode only), right-click does nothing — it used to
+   * focus the box for editing *and* open the browser menu. Leaving a box empty
+   * removes it; Escape finishes editing.
+   */
+  private wireTextbox(t: HTMLElement, a: Extract<Annot, { type: 'textbox' }>): void {
+    t.addEventListener('contextmenu', (e) => e.preventDefault());
+    t.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); t.blur(); }
+      e.stopPropagation(); // typing must not trigger viewer shortcuts
+    });
+    t.addEventListener('blur', () => {
+      window.getSelection()?.removeAllRanges();
+      if (!(t.textContent ?? '').trim()) this.discard(a);
+    });
+    t.addEventListener('pointerdown', (e) => {
+      e.stopPropagation(); // never reaches the page / placement handlers
+      if (e.button !== 0) { e.preventDefault(); return; } // no focus on right/middle click
+      if (document.activeElement === t) return; // already editing: let the caret move
+      e.preventDefault(); // decide on pointerup: edit (click) or move (drag)
+      const ov = this.overlays.get(a.page);
+      const sx = e.clientX, sy = e.clientY;
+      const start = ov ? this.clientToPt(ov, a.page, sx, sy) : null;
+      const at0 = { ...a.at };
+      let dragging = false;
+      const onPm = (ev: PointerEvent) => {
+        if (!ov || !start || !this.active) return;
+        if (!dragging && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return;
+        dragging = true;
+        const now = this.clientToPt(ov, a.page, ev.clientX, ev.clientY);
+        a.at = { x: at0.x + (now.x - start.x), y: at0.y + (now.y - start.y) };
+        t.style.left = `${(a.at.x / ov.pageW) * 100}%`;
+        t.style.top = `${(a.at.y / ov.pageH) * 100}%`;
+      };
+      const onPu = (ev: PointerEvent) => {
+        window.removeEventListener('pointermove', onPm, true);
+        window.removeEventListener('pointerup', onPu, true);
+        if (dragging) { this.scheduleSave(); return; }
+        t.focus();
+        placeCaret(t, ev.clientX, ev.clientY);
+      };
+      window.addEventListener('pointermove', onPm, true);
+      window.addEventListener('pointerup', onPu, true);
+    });
   }
 
   /** Drag a placed DOM annotation; reports the new top-left point (PDF points). */
@@ -332,7 +408,7 @@ export class AnnotationManager {
     line.setAttribute('y1', String(a.from.y));
     line.setAttribute('x2', String(a.to.x));
     line.setAttribute('y2', String(a.to.y));
-    line.setAttribute('stroke', a.color);
+    line.setAttribute('stroke', this.shown(a.color));
     line.setAttribute('stroke-width', String(a.width));
     line.setAttribute('stroke-linecap', 'round');
     const ang = Math.atan2(a.to.y - a.from.y, a.to.x - a.from.x);
@@ -342,7 +418,7 @@ export class AnnotationManager {
     const poly = document.createElementNS(SVGNS, 'polyline');
     poly.setAttribute('points', `${head1.x},${head1.y} ${a.to.x},${a.to.y} ${head2.x},${head2.y}`);
     poly.setAttribute('fill', 'none');
-    poly.setAttribute('stroke', a.color);
+    poly.setAttribute('stroke', this.shown(a.color));
     poly.setAttribute('stroke-width', String(a.width));
     poly.setAttribute('stroke-linecap', 'round');
     poly.setAttribute('stroke-linejoin', 'round');
@@ -360,27 +436,36 @@ export class AnnotationManager {
     const pageEl = (range.startContainer.parentElement as HTMLElement)?.closest('.pdf-page') as HTMLElement | null;
     if (!pageEl) return;
     const pageNum = Number(pageEl.dataset.page);
-    const rects: FracRect[] = [];
-    for (const cr of Array.from(range.getClientRects())) {
+    const ov = this.overlays.get(pageNum);
+    const pw = ov?.pageW ?? 1;
+    const ph = ov?.pageH ?? 1;
+    // Collect boxes from the selected TEXT only. range.getClientRects() also
+    // returns the border box of every fully-selected <span>, on top of the
+    // rects of the text inside it, so multi-line selections were painted twice
+    // (darker, doubled underlines). Rects are kept in page points so lines can
+    // be merged regardless of rotation.
+    const boxes: FracRect[] = [];
+    for (const cr of textRects(range, pageEl)) {
       if (cr.width < 1 || cr.height < 1) continue;
       // Map two opposite corners through the rotation; a screen-axis-aligned rect
       // stays axis-aligned under 90° steps, so min/extent recovers the rect.
       const a = this.clientToFrac(pageNum, cr.left, cr.top);
       const b = this.clientToFrac(pageNum, cr.right, cr.bottom);
-      rects.push({
-        x: Math.min(a.fx, b.fx),
-        y: Math.min(a.fy, b.fy),
-        w: Math.abs(b.fx - a.fx),
-        h: Math.abs(b.fy - a.fy),
+      boxes.push({
+        x: Math.min(a.fx, b.fx) * pw,
+        y: Math.min(a.fy, b.fy) * ph,
+        w: Math.abs(b.fx - a.fx) * pw,
+        h: Math.abs(b.fy - a.fy) * ph,
       });
     }
+    const rects: FracRect[] = mergeLineRects(boxes).map((r) => ({ x: r.x / pw, y: r.y / ph, w: r.w / pw, h: r.h / ph }));
     if (!rects.length) return;
     const type = this.tool as 'highlight' | 'underline' | 'strike';
     this.add({
       id: this.newId(),
       page: pageNum,
       type,
-      color: settings.get<string>('annotation.highlightColor'),
+      color: this.stored(settings.get<string>(this.colorPathForTool(this.tool)!)),
       opacity: settings.get<number>('annotation.highlightOpacity'),
       rects,
     });
@@ -389,18 +474,20 @@ export class AnnotationManager {
 
   // ---- Placement (note / textbox / stamp) ------------------------------
 
-  private placeAt(pageNum: number, ov: Overlay, clientX: number, clientY: number): void {
+  private async placeAt(pageNum: number, ov: Overlay, clientX: number, clientY: number): Promise<void> {
     const at = this.clientToPt(ov, pageNum, clientX, clientY);
     if (this.tool === 'note') {
-      const a: Annot = { id: this.newId(), page: pageNum, type: 'note', color: settings.get<string>('annotation.highlightColor'), at, text: '' };
-      this.add(a);
-      const el = ov.dom.querySelector(`[data-id="${a.id}"]`) as HTMLElement;
+      const a: Annot = { id: this.newId(), page: pageNum, type: 'note', color: this.stored(settings.get<string>(this.colorPathForTool('note')!)), at, text: '' };
+      await this.add(a);
+      const el = this.overlays.get(pageNum)?.dom.querySelector(`[data-id="${a.id}"]`) as HTMLElement | null;
       if (el) this.openNoteEditor(a, el);
     } else if (this.tool === 'textbox') {
-      const a: Annot = { id: this.newId(), page: pageNum, type: 'textbox', color: settings.get<string>('annotation.penColor'), at, text: 'Text', fontPts: 14 };
-      this.add(a);
-      const el = ov.dom.querySelector(`[data-id="${a.id}"]`) as HTMLElement;
-      if (el) { el.focus(); document.getSelection()?.selectAllChildren(el); }
+      const a: Annot = { id: this.newId(), page: pageNum, type: 'textbox', color: this.stored(settings.get<string>(this.colorPathForTool('textbox')!)), at, text: '', fontPts: 14 };
+      // add() re-renders the overlay asynchronously; the old code looked the
+      // element up before it existed, so the new box never got focus.
+      await this.add(a);
+      const el = this.overlays.get(pageNum)?.dom.querySelector(`[data-id="${a.id}"]`) as HTMLElement | null;
+      el?.focus();
     } else if (this.tool === 'stamp') {
       if (!this.pendingStamp) { void this.loadStamp(); return; }
       const w = 160, h = w / this.pendingStamp.aspect;
@@ -426,7 +513,7 @@ export class AnnotationManager {
   }
 
   private openNoteEditor(a: Extract<Annot, { type: 'note' }>, marker: HTMLElement): void {
-    document.querySelector('.annot-note-editor')?.remove();
+    dismiss(document.querySelector('.annot-note-editor:not(.is-leaving)'));
     const panel = document.createElement('div');
     panel.className = 'annot-note-editor';
     const rect = marker.getBoundingClientRect();
@@ -438,7 +525,7 @@ export class AnnotationManager {
     ta.addEventListener('input', () => { a.text = ta.value; marker.title = ta.value; this.scheduleSave(); });
     const close = document.createElement('button');
     close.textContent = 'Done';
-    close.addEventListener('click', () => panel.remove());
+    close.addEventListener('click', () => dismiss(panel));
     panel.append(ta, close);
     document.body.appendChild(panel);
     ta.focus();
@@ -458,14 +545,24 @@ export class AnnotationManager {
       }
       if (['note', 'textbox', 'stamp'].includes(this.tool)) {
         e.preventDefault();
-        this.placeAt(pageNum, ov, e.clientX, e.clientY);
+        if (e.button !== 0) return; // right-click must not place anything
+        // A click outside a text box / note being edited just finishes editing;
+        // it used to also drop a brand-new box where you clicked.
+        const activeEl = document.activeElement as HTMLElement | null;
+        const editor = document.querySelector('.annot-note-editor:not(.is-leaving)');
+        if (activeEl?.classList.contains('annot-textbox') || editor) {
+          activeEl?.blur();
+          dismiss(editor);
+          return;
+        }
+        void this.placeAt(pageNum, ov, e.clientX, e.clientY);
         return;
       }
       if (!['pen', 'rectangle', 'ellipse', 'arrow'].includes(this.tool)) return;
       e.preventDefault();
       ov.svg.setPointerCapture(e.pointerId);
       const p = this.clientToPt(ov, pageNum, e.clientX, e.clientY);
-      const color = this.tool === 'pen' ? settings.get<string>('annotation.penColor') : settings.get<string>('annotation.shapeColor');
+      const color = this.stored(settings.get<string>(this.colorPathForTool(this.tool)!));
       const width = settings.get<number>('annotation.penWidth');
       let annot: Annot;
       if (this.tool === 'pen') annot = { id: this.newId(), page: pageNum, type: 'pen', color, width, points: [p] };
@@ -532,12 +629,23 @@ export class AnnotationManager {
     return cfg?.enabled && (cfg.global || this.active);
   }
 
+  private lastMiddleDown = 0;
+
   private onGlobalPointerDown = (e: PointerEvent) => {
     if (e.button !== 1 || !this.middleEraserAllowed()) return;
     const pageEl = (e.target as HTMLElement)?.closest?.('.pdf-page') as HTMLElement | null;
     if (!pageEl) return;
     e.preventDefault();
     e.stopPropagation();
+    // Double middle-click on a page = erase everything (undoable).
+    const now = performance.now();
+    if (now - this.lastMiddleDown < 350) {
+      this.lastMiddleDown = 0;
+      this.endErase();
+      this.clearAll();
+      return;
+    }
+    this.lastMiddleDown = now;
     this.startErase();
     this.eraseAt(Number(pageEl.dataset.page), e.clientX, e.clientY);
   };
@@ -614,12 +722,75 @@ export class AnnotationManager {
 
   // ---- Mutation / undo / persistence -----------------------------------
 
-  private add(a: Annot): void {
+  private add(a: Annot): Promise<void> {
     this.annots.push(a);
     this.undoStack.push({ kind: 'add', annots: [a] });
     this.redoStack = [];
-    void this.renderPage(a.page);
     this.scheduleSave();
+    return this.renderPage(a.page);
+  }
+
+  /** Remove every annotation in this PDF as one undoable step. */
+  clearAll(): void {
+    this.eraseWhere(() => true, 'in this PDF');
+  }
+
+  /** Remove the annotations on the current page (undoable). */
+  clearPage(page = this.pdf.state.page): void {
+    this.eraseWhere((a) => a.page === page, `on page ${page}`);
+  }
+
+  /** Remove the annotations that are (at least partly) visible right now. */
+  clearInView(): void {
+    const view = (document.getElementById('scroll') ?? document.body).getBoundingClientRect();
+    const boxes = new Map<number, { x0: number; y0: number; x1: number; y1: number }>();
+    for (const [pageNum, ov] of this.overlays) {
+      const el = this.pdf.getPageEl(pageNum);
+      if (!el || !el.isConnected) continue;
+      const r = el.getBoundingClientRect();
+      const ix0 = Math.max(r.left, view.left), iy0 = Math.max(r.top, view.top);
+      const ix1 = Math.min(r.right, view.right), iy1 = Math.min(r.bottom, view.bottom);
+      if (ix1 <= ix0 || iy1 <= iy0) continue;
+      // Visible part of the page, back in unrotated page points.
+      const a = this.clientToPt(ov, pageNum, ix0, iy0);
+      const b = this.clientToPt(ov, pageNum, ix1, iy1);
+      boxes.set(pageNum, { x0: Math.min(a.x, b.x), y0: Math.min(a.y, b.y), x1: Math.max(a.x, b.x), y1: Math.max(a.y, b.y) });
+    }
+    this.eraseWhere((a) => {
+      const v = boxes.get(a.page);
+      const ov = this.overlays.get(a.page);
+      if (!v || !ov) return false;
+      const bb = annotBounds(a, ov.pageW, ov.pageH);
+      return bb.x1 >= v.x0 && bb.x0 <= v.x1 && bb.y1 >= v.y0 && bb.y0 <= v.y1;
+    }, 'in view');
+  }
+
+  /**
+   * Erase a set of annotations as ONE undo step. Erasing is undoable on purpose
+   * (instead of an "Are you sure?" dialog): a stray double middle-click or a
+   * mis-click can't destroy work, and Ctrl+Z restores everything at once.
+   */
+  private eraseWhere(pred: (a: Annot) => boolean, where: string): void {
+    const removed = this.annots.filter(pred);
+    if (!removed.length) {
+      this.toast(`No annotations ${where}`);
+      return;
+    }
+    this.annots = this.annots.filter((a) => !removed.includes(a));
+    this.undoStack.push({ kind: 'del', annots: removed });
+    this.redoStack = [];
+    dismiss(document.querySelector('.annot-note-editor:not(.is-leaving)'));
+    this.rerenderPages(removed);
+    this.scheduleSave();
+    this.toast(`Erased ${removed.length} annotation${removed.length === 1 ? '' : 's'} ${where} — Ctrl+Z to undo`);
+  }
+
+  /** Drop an annotation without an undo entry (e.g. a text box left empty). */
+  private discard(a: Annot): void {
+    this.annots = this.annots.filter((x) => x !== a);
+    this.undoStack = this.undoStack.filter((op) => !(op.kind === 'add' && op.annots.length === 1 && op.annots[0] === a));
+    this.scheduleSave();
+    void this.renderPage(a.page);
   }
 
   undo(): void {
@@ -789,4 +960,114 @@ function distToSeg(p: Pt, a: Pt, b: Pt): number {
   let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
   t = Math.max(0, Math.min(1, t));
   return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+/** Client rects of the text nodes a range covers (within `scope`), one per
+ *  line fragment — never element border boxes. */
+function textRects(range: Range, scope: Element): DOMRect[] {
+  const out: DOMRect[] = [];
+  const root = range.commonAncestorContainer;
+  const walkRoot = root.nodeType === Node.TEXT_NODE ? root.parentNode! : root;
+  const walker = document.createTreeWalker(walkRoot, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+  if (root.nodeType === Node.TEXT_NODE) nodes.push(root as Text);
+  else for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n as Text);
+  for (const t of nodes) {
+    if (!range.intersectsNode(t) || !scope.contains(t) || !t.data.trim()) continue;
+    const r = document.createRange();
+    r.selectNodeContents(t);
+    if (t === range.startContainer) r.setStart(t, range.startOffset);
+    if (t === range.endContainer) r.setEnd(t, range.endOffset);
+    if (r.collapsed) continue;
+    out.push(...Array.from(r.getClientRects()));
+  }
+  return out;
+}
+
+/** Merge boxes on the same line that overlap or nearly touch, so adjacent
+ *  text spans don't stack semi-transparent highlight (dark seams). */
+function mergeLineRects(rects: FracRect[]): FracRect[] {
+  const sorted = [...rects].sort((a, b) => a.y + a.h / 2 - (b.y + b.h / 2) || a.x - b.x);
+  const out: FracRect[] = [];
+  for (const r of sorted) {
+    const prev = out.find((o) => {
+      const overlapY = Math.min(o.y + o.h, r.y + r.h) - Math.max(o.y, r.y);
+      const sameLine = overlapY > 0.5 * Math.min(o.h, r.h);
+      const gap = Math.max(o.x, r.x) - Math.min(o.x + o.w, r.x + r.w);
+      return sameLine && gap < 0.35 * Math.max(o.h, r.h);
+    });
+    if (!prev) { out.push({ ...r }); continue; }
+    const x0 = Math.min(prev.x, r.x), y0 = Math.min(prev.y, r.y);
+    const x1 = Math.max(prev.x + prev.w, r.x + r.w), y1 = Math.max(prev.y + prev.h, r.y + r.h);
+    Object.assign(prev, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+  }
+  return out;
+}
+
+/** True when the dark page theme (and therefore the dark UI) is on. */
+function isDarkUi(): boolean {
+  const dm = settings.get<any>('darkMode');
+  return !!dm?.enabled && dm?.mode !== 'off';
+}
+
+/**
+ * Swap (near-)pure black <-> white; every other colour is left as is. Under dark
+ * mode the page itself is inverted, so a black pen stroke would vanish into the
+ * dark page and a white one would glare. Swapping just these two keeps ink
+ * readable in both themes without disturbing real colours.
+ */
+export function swapBW(c: string): string {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim());
+  if (!m) return c;
+  const hex = m[1].length === 3 ? m[1].split('').map((ch) => ch + ch).join('') : m[1];
+  const ch = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  if (ch.every((v) => v <= 0x14)) return '#ffffff';
+  if (ch.every((v) => v >= 0xeb)) return '#000000';
+  return c;
+}
+
+/** Put the caret in `el` at the given client point (end of text as fallback). */
+function placeCaret(el: HTMLElement, x: number, y: number): void {
+  const sel = window.getSelection();
+  if (!sel) return;
+  const r = (document as any).caretRangeFromPoint?.(x, y) as Range | null;
+  if (r && el.contains(r.startContainer)) {
+    sel.removeAllRanges();
+    sel.addRange(r);
+    return;
+  }
+  const end = document.createRange();
+  end.selectNodeContents(el);
+  end.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(end);
+}
+
+/** Bounding box of an annotation in page points. */
+function annotBounds(a: Annot, pw: number, ph: number): { x0: number; y0: number; x1: number; y1: number } {
+  const box = (x: number, y: number, w: number, h: number) => ({ x0: x, y0: y, x1: x + w, y1: y + h });
+  switch (a.type) {
+    case 'pen': {
+      const xs = a.points.map((p) => p.x), ys = a.points.map((p) => p.y);
+      return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+    }
+    case 'arrow':
+      return { x0: Math.min(a.from.x, a.to.x), y0: Math.min(a.from.y, a.to.y), x1: Math.max(a.from.x, a.to.x), y1: Math.max(a.from.y, a.to.y) };
+    case 'rectangle':
+    case 'ellipse':
+    case 'stamp':
+      return box(a.box.x, a.box.y, a.box.w, a.box.h);
+    case 'note':
+      return box(a.at.x - 8, a.at.y - 8, 16, 16);
+    case 'textbox': {
+      const lines = Math.max(1, a.text.split('\n').length);
+      const w = Math.max(24, Math.max(...a.text.split('\n').map((l) => l.length)) * a.fontPts * 0.55);
+      return box(a.at.x, a.at.y, w, lines * a.fontPts * 1.3);
+    }
+    default: {
+      const xs = a.rects.flatMap((r) => [r.x * pw, (r.x + r.w) * pw]);
+      const ys = a.rects.flatMap((r) => [r.y * ph, (r.y + r.h) * ph]);
+      return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+    }
+  }
 }

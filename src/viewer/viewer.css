@@ -1,19 +1,83 @@
+/* ---- Theme tokens ----
+   The UI follows the page theme: light while dark mode is off, dark while it
+   is on (darkmode.ts toggles body.lumen-dark). Every colour below is a token so
+   bars, panels, inputs and highlights switch together, and the --theme-fade
+   transitions make the switch a cross-fade. No brand blue: the accent is a
+   neutral ink (dark on light, light on dark). */
 :root {
-  --lumen-bg: #52555b;
-  --lumen-panel: #23262d;
-  --lumen-accent: #4dabf7;
-  --lumen-text: #e8ebf0;
-  --lumen-radius: 10px;
+  --lumen-bg: #e7e8eb;            /* viewer backdrop around pages */
+  --lumen-panel: #ffffff;         /* opaque surfaces (select popups) */
+  --lumen-text: #1d1f24;
+  --lumen-muted: rgba(29, 31, 36, 0.62);
+  --accent: #26282e;              /* active / selected / primary */
+  --accent-ink: #ffffff;          /* text on --accent */
+  --lumen-accent: var(--accent);  /* legacy alias */
+  --field-bg: rgba(0, 0, 0, 0.045);
+  --hairline: rgba(0, 0, 0, 0.10);
+  --scroll-thumb: rgba(0, 0, 0, 0.22);
+  --scroll-thumb-hover: rgba(0, 0, 0, 0.34);
+  --option-checked: #dcdde1;
+  --tip-bg: rgba(255, 255, 255, 0.97);
+  --overlay: rgba(20, 22, 26, 0.28);
+  --page-shadow: 0 6px 24px rgba(0, 0, 0, 0.16);
+  --textbox-focus-bg: rgba(255, 255, 255, 0.85);
+  --scheme: light;
 
   /* Glassmorphism surface tokens — shared by every bar, panel and popover. */
-  --glass-bg: rgba(24, 27, 36, 0.52);
-  --glass-border: rgba(255, 255, 255, 0.14);
-  --glass-highlight: rgba(255, 255, 255, 0.10);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.44);
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(0, 0, 0, 0.09);
+  --glass-highlight: rgba(255, 255, 255, 0.75);
+  --glass-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
   --glass-blur: blur(18px) saturate(160%);
-  --glass-hover: rgba(255, 255, 255, 0.12);
-  --glass-active: rgba(255, 255, 255, 0.18);
+  --glass-hover: rgba(0, 0, 0, 0.06);
+  --glass-active: rgba(0, 0, 0, 0.11);
+  /* Duration of the theme cross-fade (pages, thumbnails, UI chrome). */
+  --theme-fade: 0.45s;
+  /* Shared motion + shape for every bar, panel and popover. */
+  --motion-in: 0.22s;
+  --motion-out: 0.16s;
+  --motion-ease: cubic-bezier(0.22, 0.8, 0.24, 1);
+  --bar-radius: 14px;
+  --panel-radius: 14px;
+  --bar-height: 50px;
+  --btn-size: 34px;
 }
+body.lumen-dark {
+  --lumen-bg: #1b1c1f;
+  --lumen-panel: #23252a;
+  --lumen-text: #e6e8eb;
+  --lumen-muted: rgba(230, 232, 235, 0.62);
+  --accent: #e6e8eb;
+  --accent-ink: #17181b;
+  --field-bg: rgba(255, 255, 255, 0.06);
+  --hairline: rgba(255, 255, 255, 0.09);
+  --scroll-thumb: rgba(255, 255, 255, 0.18);
+  --scroll-thumb-hover: rgba(255, 255, 255, 0.3);
+  --option-checked: #3a3d44;
+  --tip-bg: rgba(24, 25, 29, 0.95);
+  --overlay: rgba(0, 0, 0, 0.45);
+  --page-shadow: 0 6px 24px rgba(0, 0, 0, 0.38);
+  --textbox-focus-bg: rgba(28, 29, 33, 0.85);
+  --scheme: dark;
+
+  --glass-bg: rgba(28, 30, 35, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-highlight: rgba(255, 255, 255, 0.08);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.44);
+  --glass-hover: rgba(255, 255, 255, 0.10);
+  --glass-active: rgba(255, 255, 255, 0.16);
+}
+/* No cross-fade while the page boots into its saved theme. */
+body.theme-boot, body.theme-boot * { transition: none !important; }
+
+/* Chrome surfaces cross-fade with the theme. */
+.search-bar, .lumen-sidebar,
+.cmdk-panel, .lumen-toolbar-handle, .annot-note-editor, .lumen-toast, .lumen-tip {
+  transition: background-color var(--theme-fade) ease, color var(--theme-fade) ease,
+    border-color var(--theme-fade) ease, box-shadow var(--theme-fade) ease;
+}
+/* Native controls (sliders, checkboxes, radios) use the neutral accent. */
+input[type=range], input[type=checkbox], input[type=radio] { accent-color: var(--accent); }
 
 * { box-sizing: border-box; }
 
@@ -42,7 +106,8 @@ body {
   background: var(--lumen-bg);
   color: var(--lumen-text);
   overflow: hidden;
-  color-scheme: dark; /* dark native scrollbars + form controls app-wide */
+  color-scheme: var(--scheme); /* native scrollbars + form controls follow the theme */
+  transition: background-color var(--theme-fade) ease, color var(--theme-fade) ease;
 }
 
 #app { height: 100vh; position: relative; }
@@ -53,8 +118,10 @@ body {
   overflow: auto;
   padding: 24px 0 96px;
   outline: none;
-  transition: background 0.2s ease;
-  color-scheme: dark;
+  /* margin-left changes instantly; the pages glide via a FLIP transform
+     (pdfViewer.flipResize) in step with the sidebar slide. */
+  transition: background var(--theme-fade) ease;
+  color-scheme: var(--scheme);
 }
 /* Block layout + margin:auto centers pages but, unlike flex `align-items:center`,
    keeps the LEFT edge reachable when a zoomed page is wider than the viewport
@@ -62,8 +129,9 @@ body {
 .pdf-page {
   position: relative;
   background: #fff;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--page-shadow);
   border-radius: 2px;
+  transition: background-color var(--theme-fade) ease, box-shadow var(--theme-fade) ease;
   margin: 0 auto 20px;
 }
 .pdf-spread {
@@ -71,17 +139,43 @@ body {
   width: fit-content; margin: 0 auto 20px;
 }
 .pdf-spread .pdf-page { margin: 0; }
-.pdf-canvas { display: block; border-radius: 2px; }
+/* Snap the centered page's left edge to a whole device pixel. A half-pixel
+   offset (odd leftover width, or 125%/150% display scaling) makes the browser
+   resample the whole canvas, which blurs/shimmers small text. --pw is the
+   page/spread width and --dpx one device pixel, both set by pdfViewer.ts.
+   Older Chrome without CSS round() keeps the plain margin:auto above. */
+@supports (margin-left: round(down, 1px, 1px)) {
+  .pdf-content > .pdf-page, .pdf-content > .pdf-spread {
+    margin-left: max(0px, round(down, (100% - var(--pw, 0px)) / 2, var(--dpx, 1px)));
+    margin-right: 0;
+  }
+}
+/* All pages sit in one box; zoom is previewed as a GPU transform on it. */
+.pdf-content { transform-origin: 0 0; }
+.pdf-content.zooming { will-change: transform; }
+
+/* pdf.js selection guard (viewer/selectionGuard.ts): an invisible block that
+   catches the pointer in gaps between spans while selecting, so the selection
+   doesn't jump to the rest of the page. */
+.textLayer .endOfContent {
+  display: block; position: absolute; inset: 100% 0 0; z-index: 0;
+  cursor: default; user-select: none;
+}
+.textLayer.selecting .endOfContent { top: 0; }
+.textLayer > :not(.endOfContent) { z-index: 1; }
+
+/* filter transition = smooth fade when dark mode / brightness / contrast change. */
+.pdf-canvas { display: block; border-radius: 2px; transition: filter var(--theme-fade) ease; }
 
 /* Dark, slim custom scrollbars to match the app chrome. */
 .pdf-scroll::-webkit-scrollbar { width: 13px; height: 13px; }
 .pdf-scroll::-webkit-scrollbar-track { background: transparent; }
 .pdf-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.18); border-radius: 8px;
+  background: var(--scroll-thumb); border-radius: 8px;
   border: 3px solid transparent; background-clip: padding-box;
 }
 .pdf-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3); background-clip: padding-box;
+  background: var(--scroll-thumb-hover); background-clip: padding-box;
 }
 
 /* ---- Thumbnail sidebar ---- */
@@ -92,11 +186,60 @@ body {
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border-right: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow);
+  /* Closed: parked off-screen to the left. Slides in/out (--slide). */
+  --slide: 0.32s cubic-bezier(0.22, 0.8, 0.24, 1);
+  transform: translateX(-100%); opacity: 0; visibility: hidden;
+  transition: transform var(--slide), opacity 0.22s ease, visibility 0s linear 0.32s,
+    background-color var(--theme-fade) ease, border-color var(--theme-fade) ease;
+  will-change: transform;
 }
-.sb-head {
-  padding: 14px 16px 8px; font-size: 11px; font-weight: 700;
-  letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.6;
+.lumen-sidebar.is-open {
+  transform: none; opacity: 1; visibility: visible;
+  transition: transform var(--slide), opacity 0.18s ease, visibility 0s,
+    background-color var(--theme-fade) ease, border-color var(--theme-fade) ease;
 }
+.sb-tabs {
+  display: flex; gap: 4px; padding: 10px 10px 6px;
+  border-bottom: 1px solid var(--hairline);
+}
+.sb-tab {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  height: 30px; border: none; border-radius: 8px; cursor: pointer;
+  background: transparent; color: var(--lumen-text); opacity: 0.65;
+  font: 600 11px/1 system-ui, sans-serif; letter-spacing: 0.04em; text-transform: uppercase;
+  transition: background 0.14s ease, opacity 0.14s ease;
+}
+.sb-tab svg { width: 14px; height: 14px; }
+.sb-tab:hover { background: var(--glass-hover); opacity: 0.9; }
+.sb-tab.active { background: var(--glass-active); opacity: 1; }
+
+/* Contents (outline) tree */
+.sb-outline { flex: 1; overflow-y: auto; padding: 6px 6px 24px; font-size: 12.5px; }
+.sb-outline::-webkit-scrollbar { width: 10px; }
+.sb-outline::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb); border-radius: 8px;
+  border: 2px solid transparent; background-clip: padding-box;
+}
+.sb-tree { list-style: none; margin: 0; padding: 0; }
+.sb-tree li > .sb-tree { display: none; }
+.sb-tree li.open > .sb-tree { display: block; }
+.sb-node { display: flex; align-items: flex-start; gap: 2px; border-radius: 7px; }
+.sb-node:hover { background: var(--glass-hover); }
+.sb-node.current { background: var(--glass-active); box-shadow: inset 2px 0 0 var(--accent); }
+.sb-toggle {
+  flex: none; width: 18px; height: 24px; padding: 0; border: none; background: none;
+  color: var(--lumen-text); opacity: 0.6; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.sb-toggle svg { width: 13px; height: 13px; transition: transform 0.15s ease; }
+.sb-tree li.open > .sb-node .sb-toggle svg { transform: rotate(90deg); }
+.sb-toggle.leaf { cursor: default; }
+.sb-link {
+  flex: 1; min-width: 0; padding: 5px 6px 5px 2px; border: none; background: none;
+  color: var(--lumen-text); text-align: left; cursor: pointer; font: inherit; line-height: 1.3;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.sb-empty { padding: 16px 12px; opacity: 0.6; font-size: 12px; line-height: 1.4; }
 .sb-list {
   flex: 1; overflow-y: auto; padding: 4px 10px 24px;
   display: flex; flex-direction: column; gap: 10px; align-items: center;
@@ -111,13 +254,14 @@ body {
 .sb-item.active { background: var(--glass-active); }
 .sb-thumb {
   width: 150px; max-width: 100%; min-height: 48px; border-radius: 3px;
-  background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  transition: filter var(--theme-fade) ease; /* dark-mode filter set by darkmode.ts */
 }
-.sb-item.active .sb-thumb { outline: 2px solid var(--lumen-accent); outline-offset: 1px; }
+.sb-item.active .sb-thumb { outline: 2px solid var(--accent); outline-offset: 1px; }
 .sb-num { font-size: 11px; opacity: 0.65; font-variant-numeric: tabular-nums; }
 .sb-list::-webkit-scrollbar { width: 10px; }
 .sb-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.16); border-radius: 8px;
+  background: var(--scroll-thumb); border-radius: 8px;
   border: 2px solid transparent; background-clip: padding-box;
 }
 /* margin (not padding) so the scroller's clientWidth shrinks and fit-to-width
@@ -147,6 +291,13 @@ body.distraction-free.sidebar-open .pdf-scroll { margin-left: 0; }
   transform-origin: 0% 0%;
 }
 .textLayer span.markedContent { top: 0; height: 0; }
+/* pdf.js sizes the text layer to the UNROTATED page and tags it with
+   data-main-rotation; these rules (from pdf.js's viewer CSS) rotate it onto
+   the rotated canvas. Without them, text selection, search hits, TTS word
+   highlights and new text marks are misplaced on rotated pages. */
+.textLayer[data-main-rotation='90'] { transform: rotate(90deg) translateY(-100%); }
+.textLayer[data-main-rotation='180'] { transform: rotate(180deg) translate(-100%, -100%); }
+.textLayer[data-main-rotation='270'] { transform: rotate(270deg) translateX(-100%); }
 
 /* ---- Annotation layers ----
    canvas(0) < highlights(1) < textLayer(2) < pen/shapes(3) so text stays
@@ -183,7 +334,8 @@ body.distraction-free.sidebar-open .pdf-scroll { margin-left: 0; }
   min-width: 24px; padding: 2px 4px; outline: none; white-space: pre-wrap;
   background: rgba(255, 255, 255, 0.01); border: 1px dashed transparent; cursor: move;
 }
-.annot-textbox:focus { border-color: var(--lumen-accent); background: rgba(255, 255, 255, 0.85); cursor: text; }
+.annot-textbox:focus { border-color: var(--accent); background: var(--textbox-focus-bg); cursor: text; }
+.annot-textbox:empty::before { content: attr(data-placeholder); opacity: 0.45; pointer-events: none; }
 .annot-stamp { cursor: move; user-select: none; }
 .annot-note-editor {
   position: fixed; z-index: 85; width: 240px; max-width: calc(100vw - 24px);
@@ -191,16 +343,19 @@ body.distraction-free.sidebar-open .pdf-scroll { margin-left: 0; }
   background: var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
-  border-radius: 12px; box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+  border-radius: var(--panel-radius); box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+  animation: lumen-pop-in var(--motion-in) var(--motion-ease);
+  transform-origin: top left;
 }
+.annot-note-editor.is-leaving { animation: lumen-pop-out var(--motion-out) ease forwards; pointer-events: none; }
 .annot-note-editor textarea {
   width: 100%; height: 90px; resize: vertical;
-  background: rgba(255, 255, 255, 0.06); color: var(--lumen-text);
+  background: var(--field-bg); color: var(--lumen-text);
   border: 1px solid var(--glass-border); border-radius: 8px; padding: 7px; outline: none;
 }
 .annot-note-editor button {
   align-self: flex-end; padding: 6px 14px; border: none; border-radius: 7px;
-  background: var(--lumen-accent); color: #04121f; font-weight: 600; cursor: pointer;
+  background: var(--accent); color: var(--accent-ink); font-weight: 600; cursor: pointer;
 }
 body.annot-active .pdf-page { cursor: crosshair; }
 body.annot-active.annot-eraser .pdf-page { cursor: cell; }
@@ -208,8 +363,13 @@ body.annot-active.annot-eraser .pdf-page { cursor: cell; }
 /* Dark-mode image protection: re-invert the canvas pixels behind image regions
    so photos/diagrams look normal instead of like negatives. */
 .dark-img-wrap { pointer-events: none; }
-.pdf-scroll.dark-active .pdf-image-protect {
+.pdf-image-protect {
   position: absolute;
+  backdrop-filter: invert(0) hue-rotate(0deg);
+  -webkit-backdrop-filter: invert(0) hue-rotate(0deg);
+  transition: backdrop-filter var(--theme-fade) ease, -webkit-backdrop-filter var(--theme-fade) ease;
+}
+.pdf-scroll.dark-active .pdf-image-protect {
   backdrop-filter: invert(1) hue-rotate(180deg);
   -webkit-backdrop-filter: invert(1) hue-rotate(180deg);
 }
@@ -219,17 +379,22 @@ body.annot-active.annot-eraser .pdf-page { cursor: cell; }
 ::highlight(lumen-search-active) { background: rgba(255, 138, 0, 0.75); color: transparent; }
 
 /* ---- TTS read-aloud highlights ---- */
-::highlight(lumen-tts) { background: rgba(77, 171, 247, 0.22); }
-::highlight(lumen-tts-word) { background: rgba(77, 171, 247, 0.6); }
+::highlight(lumen-tts) { background: rgba(0, 0, 0, 0.09); }
+::highlight(lumen-tts-word) { background: rgba(255, 196, 0, 0.45); }
+body.lumen-dark ::highlight(lumen-tts) { background: rgba(255, 255, 255, 0.12); }
+body.lumen-dark ::highlight(lumen-tts-word) { background: rgba(255, 196, 0, 0.35); }
+
+/* Highlighter marks: multiply darkens on paper, but on an inverted (dark)
+   page it would make them near-invisible, so lighten there instead. */
+body.lumen-dark .annot-hl .mark-highlight { mix-blend-mode: screen; }
 
 /* ---- TTS control bar ---- */
 .tts-bar {
-  position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%);
   display: flex; align-items: center; gap: 5px; padding: 7px 11px;
   background: var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
-  border-radius: 14px; box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight); z-index: 60;
+  border-radius: 14px; box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
 }
 .tts-btn {
   min-width: 32px; height: 32px; border: none; border-radius: 9px;
@@ -237,20 +402,61 @@ body.annot-active.annot-eraser .pdf-page { cursor: cell; }
   transition: background 0.14s ease;
 }
 .tts-btn:hover { background: var(--glass-hover); }
-.tts-play { background: var(--lumen-accent); color: #04121f; }
-.tts-play:hover { background: color-mix(in srgb, var(--lumen-accent) 85%, white); }
+.tts-play { background: var(--accent); color: var(--accent-ink); }
+.tts-play:hover { background: color-mix(in srgb, var(--accent) 86%, var(--lumen-bg)); }
 .tts-engine, .tts-voice {
-  height: 32px; background: rgba(255, 255, 255, 0.06); color: var(--lumen-text);
+  height: 32px; background: var(--field-bg); color: var(--lumen-text);
   border: 1px solid var(--glass-border); border-radius: 9px; padding: 0 6px; max-width: 150px;
 }
+.tts-close { margin-left: 2px; opacity: 0.75; }
+.tts-close:hover { opacity: 1; }
 .tts-status { font-size: 12px; opacity: 0.7; min-width: 90px; font-variant-numeric: tabular-nums; }
-body.distraction-free .tts-bar { display: none; }
+
+/* ---- Dock: the toolbar slot (ui/dock.ts) ----
+   All bars are faces of one drum, stacked in the same grid cell. The active
+   face sits at 0°; others wait at ±90° (rolled up or down), invisible. A face
+   rolls in/out by animating --roll, set from JS to pick the direction. */
+.lumen-dock {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 50;
+  display: grid; justify-items: center; align-items: end;
+  perspective: 900px; pointer-events: none;
+  max-width: calc(100vw - 24px);
+}
+.lumen-dock[data-position='floating'] { bottom: 22px; }
+.lumen-dock[data-position='docked-bottom'] { bottom: 0; }
+.lumen-dock[data-position='docked-top'] { top: 0; align-items: start; }
+.lumen-dock[data-position='docked-bottom'] > .dock-face { border-radius: 14px 14px 0 0; }
+.lumen-dock[data-position='docked-top'] > .dock-face { border-radius: 0 0 14px 14px; }
+.dock-face {
+  grid-area: 1 / 1;
+  --roll: 90deg;
+  transform-origin: 50% 50% -26px;   /* drum radius ≈ half a bar's height */
+  transform: rotateX(var(--roll));
+  backface-visibility: hidden;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: transform 0.46s cubic-bezier(0.22, 0.8, 0.24, 1), opacity 0.3s ease,
+    visibility 0s linear 0.46s, background-color var(--theme-fade) ease,
+    color var(--theme-fade) ease, border-color var(--theme-fade) ease;
+  /* Own compositor layer: hovering buttons no longer re-composites the blur,
+     which caused occasional flicker lines on some GPUs. */
+  will-change: transform;
+}
+.dock-face.is-active {
+  opacity: 1; visibility: visible; pointer-events: auto;
+  transition: transform 0.46s cubic-bezier(0.22, 0.8, 0.24, 1), opacity 0.3s ease 0.05s,
+    visibility 0s, background-color var(--theme-fade) ease,
+    color var(--theme-fade) ease, border-color var(--theme-fade) ease;
+}
+.dock-face.no-anim { transition: none !important; }
+/* Toolbar hidden with "t": tips forward out of view instead of vanishing. */
+.dock-face.is-active.is-hidden {
+  transform: rotateX(-90deg); opacity: 0; visibility: hidden; pointer-events: none;
+  transition: transform 0.46s cubic-bezier(0.22, 0.8, 0.24, 1), opacity 0.3s ease,
+    visibility 0s linear 0.46s;
+}
 
 /* ---- Toolbar ---- */
 .lumen-toolbar {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 14px;
@@ -261,11 +467,7 @@ body.distraction-free .tts-bar { display: none; }
   border: 1px solid var(--glass-border);
   border-radius: 16px;
   box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
-  z-index: 50;
 }
-.lumen-toolbar[data-position='floating'] { bottom: 22px; }
-.lumen-toolbar[data-position='docked-top'] { top: 0; bottom: auto; border-radius: 0 0 14px 14px; }
-.lumen-toolbar[data-position='docked-bottom'] { bottom: 0; border-radius: 14px 14px 0 0; }
 .lumen-toolbar[data-density='compact'] { gap: 8px; padding: 5px 8px; }
 
 .lumen-toolbar-buttons { display: flex; gap: 4px; }
@@ -278,9 +480,15 @@ body.distraction-free .tts-bar { display: none; }
 }
 .lumen-tbtn:hover { background: var(--glass-hover); }
 .lumen-tbtn:active { background: var(--glass-active); transform: translateY(1px); }
-.lumen-status { font-variant-numeric: tabular-nums; opacity: 0.7; white-space: nowrap; }
+.lumen-status {
+  font: inherit; font-variant-numeric: tabular-nums; white-space: nowrap;
+  min-width: 64px; height: 32px; padding: 0 10px; border: none; border-radius: 9px;
+  background: transparent; color: var(--lumen-text); opacity: 0.75; cursor: pointer;
+  transition: background 0.14s ease, opacity 0.14s ease;
+}
+.lumen-status:hover { background: var(--glass-hover); opacity: 1; }
 
-body.distraction-free .lumen-toolbar { display: none; }
+body.distraction-free .lumen-dock { display: none; }
 .lumen-tbtn.lumen-hide { opacity: 0.6; }
 
 /* Reveal handle shown when the toolbar is hidden */
@@ -293,18 +501,22 @@ body.distraction-free .lumen-toolbar { display: none; }
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   box-shadow: var(--glass-shadow);
 }
+.lumen-toolbar-handle {
+  transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.22, 0.8, 0.24, 1),
+    background-color var(--theme-fade) ease, border-color var(--theme-fade) ease;
+}
+.lumen-toolbar-handle.is-hidden { opacity: 0; transform: translate(-50%, 10px); pointer-events: none; }
 .lumen-toolbar-handle:hover { background: var(--glass-hover); }
 .lumen-toolbar-handle svg { width: 18px; height: 18px; }
 
 /* ---- Annotation contextual bar ---- */
 .annot-bar {
-  position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
   display: flex; align-items: center; gap: 8px; padding: 7px 11px;
   max-width: calc(100vw - 24px); flex-wrap: wrap; justify-content: center;
   background: var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
-  border-radius: 14px; box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight); z-index: 60;
+  border-radius: 14px; box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
 }
 .annot-bar-tools, .annot-bar-actions { display: flex; gap: 3px; }
 .annot-tbtn {
@@ -313,52 +525,97 @@ body.distraction-free .lumen-toolbar { display: none; }
   transition: background 0.14s ease;
 }
 .annot-tbtn:hover { background: var(--glass-hover); }
-.annot-tbtn.active { background: var(--lumen-accent); color: #04121f; }
+.annot-tbtn.active { background: var(--accent); color: var(--accent-ink); }
 .annot-color { width: 30px; height: 30px; padding: 0; border: none; background: none; cursor: pointer; }
-.annot-width { width: 80px; accent-color: var(--lumen-accent); }
-.annot-sep { width: 1px; height: 22px; background: rgba(255, 255, 255, 0.14); }
-body.distraction-free .annot-bar { display: none; }
+.annot-width { width: 80px; }
+.annot-close { opacity: 0.75; }
+.annot-close:hover { opacity: 1; }
+.annot-sep { width: 1px; height: 22px; background: var(--hairline); }
 
-/* ---- Display / dark-mode panel ---- */
-.display-panel {
-  position: fixed; right: 16px; bottom: 76px; z-index: 75;
-  width: 268px; max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 110px); overflow-y: auto;
-  display: flex; flex-direction: column; gap: 11px; padding: 15px;
+/* ---- Night-mode toolbar (a dock face; ui/displayPanel.ts) ---- */
+.display-bar {
+  display: flex; align-items: center; gap: 8px; padding: 7px 11px;
+  flex-wrap: wrap; justify-content: center;
   background: var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
-  border-radius: 16px; box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+  border-radius: 14px; box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+  font-size: 13px;
 }
-.dp-head { display: flex; justify-content: space-between; align-items: center; }
-.dp-switch, .dp-row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
-.dp-row { font-size: 13px; min-width: 0; }
-.dp-row select, .dp-row input[type=range] { flex: 1; min-width: 0; }
-.dp-row input[type=range] { accent-color: var(--lumen-accent); }
-.dp-row output { width: 34px; text-align: right; opacity: 0.7; font-variant-numeric: tabular-nums; }
-.dp-presets { display: flex; gap: 6px; flex-wrap: wrap; }
-.dp-preset {
-  width: 34px; height: 30px; border-radius: 8px; cursor: pointer;
-  border: 2px solid transparent; font-weight: 700;
+.display-bar svg { width: 16px; height: 16px; flex: none; }
+.db-sep { width: 1px; height: 22px; background: var(--hairline); }
+.db-select {
+  height: 32px; background: var(--field-bg); color: var(--lumen-text);
+  border: 1px solid var(--glass-border); border-radius: 9px; padding: 0 6px;
 }
-.dp-preset.active { border-color: var(--lumen-accent); }
-.display-panel input[type=color] {
-  width: 34px; height: 26px; padding: 0; border: 1px solid var(--glass-border);
-  border-radius: 6px; background: none; cursor: pointer; flex: none;
+/* Pill switch for dark mode on/off. */
+.db-switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; padding: 0 4px; }
+.db-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.db-switch-track {
+  position: relative; width: 34px; height: 20px; border-radius: 20px;
+  background: var(--glass-active); transition: background 0.18s ease;
 }
-.display-panel select {
-  background: rgba(255, 255, 255, 0.06); color: var(--lumen-text);
-  border: 1px solid var(--glass-border); border-radius: 7px; padding: 4px 6px;
+.db-switch-track::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--lumen-text); transition: transform 0.18s ease, background 0.18s ease;
 }
+.db-switch input:checked + .db-switch-track { background: var(--accent); }
+.db-switch input:checked + .db-switch-track::after { transform: translateX(14px); background: var(--accent-ink); }
+.db-switch input:focus-visible + .db-switch-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+.db-theme {
+  display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px 0 4px;
+  border-radius: 9px; border: 1px solid var(--glass-border); background: var(--field-bg);
+  color: var(--lumen-text); font: inherit; cursor: pointer; white-space: nowrap;
+}
+.db-theme:hover { background: var(--glass-hover); }
+.db-theme.active { border-color: var(--accent); }
+.db-swatch {
+  width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center;
+  font-weight: 700; font-size: 12px; border: 1px solid var(--glass-border);
+}
+.db-slider { display: inline-flex; align-items: center; gap: 6px; }
+.db-slider input[type=range] { width: 92px; }
+.db-slider output { width: 30px; opacity: 0.7; font-variant-numeric: tabular-nums; }
+.db-check { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.db-color input[type=color] {
+  width: 30px; height: 26px; padding: 0; border: 1px solid var(--glass-border);
+  border-radius: 6px; background: none; cursor: pointer;
+}
+.db-close { opacity: 0.75; }
+.db-close:hover { opacity: 1; }
+
+/* Dropdowns: the popup list is drawn from <option> styles, which otherwise
+   default to a white sheet under our translucent select. Give every select in
+   the viewer a dark, opaque list that matches the glass panels. */
+select { color-scheme: var(--scheme); }
+select option, select optgroup {
+  background-color: var(--lumen-panel);
+  color: var(--lumen-text);
+}
+select option:checked { background-color: var(--option-checked); }
 
 /* ---- Command palette ---- */
 .cmdk-overlay {
   position: fixed; inset: 0; z-index: 100;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--overlay);
   display: flex; justify-content: center; align-items: flex-start;
   padding-top: 12vh;
+  /* Closed: invisible and inert; fades in with the panel lifting into place. */
+  opacity: 0; visibility: hidden;
+  transition: opacity var(--motion-out) ease, visibility 0s linear var(--motion-out);
 }
-.cmdk-overlay[hidden] { display: none; }
+.cmdk-overlay.is-open {
+  opacity: 1; visibility: visible;
+  transition: opacity var(--motion-in) ease, visibility 0s;
+}
+.cmdk-overlay .cmdk-panel {
+  transform: translateY(-8px) scale(0.98);
+  transition: transform var(--motion-out) var(--motion-ease);
+}
+.cmdk-overlay.is-open .cmdk-panel {
+  transform: none;
+  transition: transform var(--motion-in) var(--motion-ease);
+}
 .cmdk-panel {
   width: min(640px, 92vw);
   background: var(--glass-bg);
@@ -373,7 +630,7 @@ body.distraction-free .annot-bar { display: none; }
   border: none; outline: none;
   background: transparent; color: var(--lumen-text);
   font-size: 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--hairline);
 }
 .cmdk-list { list-style: none; margin: 0; padding: 6px; max-height: 50vh; overflow: auto; }
 .cmdk-item {
@@ -381,21 +638,19 @@ body.distraction-free .annot-bar { display: none; }
   align-items: center; gap: 10px;
   padding: 9px 12px; border-radius: 8px; cursor: pointer;
 }
-.cmdk-item.active { background: var(--lumen-accent); color: #04121f; }
+.cmdk-item.active { background: var(--accent); color: var(--accent-ink); }
 .cmdk-cat { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.6; }
 .cmdk-item.active .cmdk-cat { opacity: 0.8; }
 .cmdk-key {
   font: 11px/1 ui-monospace, monospace;
   padding: 3px 6px; border-radius: 5px;
-  background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--field-bg); border: 1px solid var(--glass-border);
 }
 
 /* ---- Search bar ---- */
 .search-bar {
-  position: fixed; top: 14px; right: 18px; z-index: 70;
-  max-width: calc(100vw - 36px);
   display: flex; align-items: center; gap: 6px;
-  padding: 7px 10px;
+  padding: 7px 11px;
   background: var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
@@ -407,9 +662,9 @@ body.distraction-free .annot-bar { display: none; }
 .search-input {
   width: 210px; max-width: 42vw; padding: 7px 10px;
   border: 1px solid var(--glass-border); border-radius: 9px;
-  background: rgba(255, 255, 255, 0.06); color: var(--lumen-text); outline: none;
+  background: var(--field-bg); color: var(--lumen-text); outline: none;
 }
-.search-input:focus { border-color: var(--lumen-accent); }
+.search-input:focus { border-color: var(--accent); }
 .search-count { min-width: 64px; text-align: center; font-size: 12px; opacity: 0.7; font-variant-numeric: tabular-nums; }
 .search-btn {
   min-width: 30px; height: 30px; border: none; border-radius: 8px;
@@ -420,10 +675,20 @@ body.distraction-free .annot-bar { display: none; }
 .search-toggle {
   display: inline-flex; align-items: center; gap: 3px;
   font: 11px/1 ui-monospace, monospace; padding: 4px 6px; border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06); cursor: pointer; user-select: none;
+  background: var(--field-bg); cursor: pointer; user-select: none;
 }
-.search-toggle input { accent-color: var(--lumen-accent); }
-body.distraction-free .search-bar { top: 14px; }
+
+/* ---- Shared tooltip (replaces native title tooltips; see ui/tooltip.ts) ---- */
+.lumen-tip {
+  position: fixed; z-index: 120; pointer-events: none;
+  max-width: 280px; padding: 5px 9px; border-radius: 8px;
+  font-size: 12px; line-height: 1.3; white-space: nowrap;
+  color: var(--lumen-text); background: var(--tip-bg);
+  border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
+  opacity: 0; transform: translateY(2px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.lumen-tip.show { opacity: 1; transform: none; }
 
 /* ---- Dropzone / error / toast ---- */
 .dropzone { position: absolute; inset: 0; display: grid; place-items: center; }
@@ -431,26 +696,130 @@ body.distraction-free .search-bar { top: 14px; }
 .file-btn {
   display: inline-block; margin: 10px 0;
   padding: 10px 18px; border-radius: 8px;
-  background: var(--lumen-accent); color: #04121f; font-weight: 600; cursor: pointer;
+  background: var(--accent); color: var(--accent-ink); font-weight: 600; cursor: pointer;
 }
 .hint { opacity: 0.6; font-size: 13px; }
 .error-banner {
   position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
-  background: #c0392b; color: #fff; padding: 10px 16px; border-radius: 8px; z-index: 80;
+  background: #c0392b; color: #fff; padding: 10px 16px; border-radius: var(--panel-radius); z-index: 80;
+  box-shadow: var(--glass-shadow);
+  animation: lumen-drop-in var(--motion-in) var(--motion-ease);
 }
+/* Messages: one at a time, centred just above the toolbar, fade + lift in/out. */
 .lumen-toast {
-  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+  position: fixed; bottom: 84px; left: 50%; transform: translateX(-50%);
+  max-width: min(520px, calc(100vw - 32px)); text-align: center;
   background: var(--glass-bg); color: var(--lumen-text);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
-  padding: 10px 16px; border-radius: 12px; z-index: 90;
+  padding: 10px 16px; border-radius: var(--panel-radius); z-index: 90;
   border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow);
-  animation: toast-in 0.15s ease;
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+  animation: lumen-toast-in var(--motion-in) var(--motion-ease);
+  pointer-events: none;
 }
-@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+.lumen-toast.is-leaving { animation: lumen-toast-out var(--motion-out) ease forwards; }
+@keyframes lumen-toast-in { from { opacity: 0; transform: translate(-50%, 10px); } }
+@keyframes lumen-toast-out { to { opacity: 0; transform: translate(-50%, 6px); } }
+@keyframes lumen-pop-in { from { opacity: 0; transform: translateY(6px) scale(0.97); } }
+@keyframes lumen-pop-out { to { opacity: 0; transform: translateY(4px) scale(0.98); } }
+@keyframes lumen-drop-in { from { opacity: 0; transform: translate(-50%, -10px); } }
+
+/* ---- Colour palette popover + small menus (above the dock) ---- */
+.color-pop, .menu-pop {
+  position: fixed; z-index: 95;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border); border-radius: var(--panel-radius);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+  color: var(--lumen-text);
+  animation: lumen-pop-in var(--motion-in) var(--motion-ease);
+  transform-origin: bottom center;
+}
+.color-pop.is-leaving, .menu-pop.is-leaving { animation: lumen-pop-out var(--motion-out) ease forwards; pointer-events: none; }
+.color-pop { width: 232px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.cp-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 7px; }
+.cp-swatch {
+  aspect-ratio: 1; border-radius: 50%; cursor: pointer; padding: 0;
+  border: 1px solid var(--hairline); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  transition: transform 0.12s var(--motion-ease), box-shadow 0.16s ease;
+}
+.cp-swatch:hover { transform: scale(1.12); }
+.cp-swatch.is-selected { box-shadow: 0 0 0 2px var(--lumen-panel), 0 0 0 4px var(--accent); }
+.cp-row { display: block; }
+.cp-row input[type=range] {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 14px; border-radius: 7px;
+  border: 1px solid var(--hairline); outline: none; margin: 0;
+}
+.cp-hue {
+  background: linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%);
+}
+.cp-light {
+  background: linear-gradient(to right,
+    hsl(var(--cp-hue, 0) 85% 12%), hsl(var(--cp-hue, 0) 85% 50%), hsl(var(--cp-hue, 0) 85% 88%));
+}
+.cp-row input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; border: 2px solid rgba(0, 0, 0, 0.55); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); cursor: grab;
+}
+.cp-foot { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.cp-preview { width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--hairline); }
+.cp-hex { font: 12px/1 ui-monospace, monospace; opacity: 0.75; flex: 1; }
+.cp-custom {
+  position: relative; cursor: pointer; padding: 5px 9px; border-radius: 8px;
+  background: var(--field-bg); border: 1px solid var(--glass-border);
+}
+.cp-custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.cp-button { position: relative; }
+.cp-current {
+  width: 18px; height: 18px; border-radius: 50%; display: block;
+  border: 2px solid var(--lumen-text); box-shadow: 0 0 0 1px var(--hairline);
+  transition: background-color 0.16s ease;
+}
+.cp-button:disabled { opacity: 0.4; cursor: default; }
+
+.menu-pop { min-width: 220px; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.menu-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 8px 10px; border: none; border-radius: 8px; background: transparent;
+  color: var(--lumen-text); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+  transition: background-color 0.14s ease;
+}
+.menu-item:hover { background: var(--glass-hover); }
+.menu-item.danger { color: #d9534f; }
+.menu-item kbd { opacity: 0.7; }
+.menu-note { padding: 6px 10px 4px; font-size: 11px; opacity: 0.6; }
+
+/* ---- One look for every bar in the dock ----
+   Main toolbar, annotation, read-aloud, night-mode and find bars share the
+   same height, padding, radius and button size, so swapping between them in
+   the dock (same position) reads as one control changing face. */
+.lumen-toolbar, .annot-bar, .tts-bar, .display-bar, .search-bar {
+  min-height: var(--bar-height); padding: 7px 11px; border-radius: var(--bar-radius);
+}
+.lumen-tbtn, .annot-tbtn, .tts-btn, .search-btn {
+  min-width: var(--btn-size); height: var(--btn-size); border-radius: 9px;
+  transition: background-color 0.16s ease, color 0.16s ease, transform 0.08s ease, opacity 0.16s ease;
+}
+.lumen-tbtn:active, .annot-tbtn:active, .tts-btn:active, .search-btn:active { transform: translateY(1px); }
+
+/* Toggle buttons (sidebar, annotate, dark mode, night toolbar, read aloud):
+   "on" gets a filled background and a small indicator bar that grows in. */
+.lumen-tbtn.is-toggle { position: relative; }
+.lumen-tbtn.is-toggle::after {
+  content: ''; position: absolute; left: 50%; bottom: 3px;
+  width: 14px; height: 2px; margin-left: -7px; border-radius: 2px;
+  background: var(--accent);
+  transform: scaleX(0); opacity: 0;
+  transition: transform 0.22s var(--motion-ease), opacity 0.18s ease;
+}
+.lumen-tbtn.is-toggle.is-on { background: var(--glass-active); }
+.lumen-tbtn.is-toggle.is-on::after { transform: scaleX(1); opacity: 1; }
+.lumen-tbtn.is-toggle.is-on svg { animation: lumen-toggle-pop 0.26s var(--motion-ease); }
+@keyframes lumen-toggle-pop { 40% { transform: scale(1.14); } }
+.annot-tbtn.active { transition: background-color 0.18s ease, color 0.18s ease; }
 
 kbd {
   font: 11px/1 ui-monospace, monospace;
   padding: 2px 5px; border-radius: 4px;
-  background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--field-bg); border: 1px solid var(--glass-border);
 }

@@ -26,7 +26,85 @@ an unpacked MV3 extension. All major features are implemented and wired. The ite
 - Command palette (`Ctrl+K`), full re-bindable keymap, import/export settings, local↔sync.
 - pdf.js cmaps + standard fonts bundled (`public/pdfjs/`) → correct CJK/standard-font PDFs.
 
-## Recent fixes (most recent session)
+## Recent fixes (2026-11-27)
+
+- **Kokoro never actually ran** — transformers.js pointed ONNX Runtime at a jsDelivr CDN
+  and the MV3 CSP blocked the remote `.mjs`, so both WebGPU and WASM failed. Now uses the
+  locally bundled `.wasm`. Also prefetches the next sentence, fixes speed-nudge doubling.
+- **TTS reads like a person** (`viewer/readingText.ts`, `tts.skipNonProse`): skips chart /
+  axis labels, numeric lines, running headers/footers, page numbers, text over images;
+  joins lines with spaces, de-hyphenates, pauses after headings.
+- **TTS bar close (×) button**; Stop no longer hides the bar.
+- **Zoom flicker** — pages are double-buffered and re-rendered once the zoom settles
+  (140 ms); the stale canvas stretches meanwhile.
+- **Small-text shimmer** — canvases sized to whole device pixels, page left edge snapped
+  to the device-pixel grid, re-render on DPR change (monitor/browser zoom).
+- **Render race** (two renders on one canvas) and **rotated text layer** misalignment.
+- **Dark mode**: sidebar thumbnails follow it; 0.45 s cross-fade on toggle; single
+  **Soft Night** theme (brightness 1, contrast 0.6) replaces the 4 presets (schema v2
+  migration); dark `<select>` popups in viewer + settings.
+
+- **Doubled multi-line highlight/underline/strike** — `range.getClientRects()` returned
+  span border boxes *and* their text rects; marks now use text-node rects only, merged
+  per line (`annotations.ts → textRects / mergeLineRects`).
+- **Annotation bar close (×)** button.
+- **Flashing toolbar tooltips** — native `title` tooltips replaced by one styled,
+  delayed tooltip (`ui/tooltip.ts`); the layout button no longer rewrites itself on
+  every page/zoom change.
+- **Sidebar Contents tab** — PDF outline as a collapsible tree next to Pages; jumps to
+  the exact heading (`pdfViewer.goToDestination`) and marks the current section.
+
+- **Text box**: focuses on placement (add() is async — the element was looked up before
+  it existed); click = edit with caret, drag = move, right-click inert (no browser menu),
+  clicking away only finishes editing (no stray new box), empty boxes are removed.
+- **Layout-cycle white flash in dark mode** — unpainted page boxes now use the filtered
+  page colour instead of `#fff`.
+- **Sub-toolbars on top** — annotation + read-aloud bars share `ui/topStack.ts`; the
+  Display panel opens top-right.
+- **UI follows the page theme** — light chrome when dark mode is off, dark when on
+  (`body.lumen-dark` tokens in `viewer.css` / `settings.css` / popup), neutral accent
+  (no blue), cross-faded; unused `ui.theme` control removed from Settings.
+- **Black↔white annotation swap in dark mode** (`swapBW`); colours are stored in
+  light-theme ("paper") form so export is unchanged.
+
+- **Dock with roll animation** — sub-toolbars replace the main toolbar (roll forward),
+  closing rolls back; Esc closes the topmost. Night mode is now a toolbar, not a popup.
+- **Fit width / fit height** buttons; **animated zoom** anchored on the viewport centre
+  (Ctrl+wheel anchors on the cursor). Toolbar readout is just the page (click → go to).
+- **Shortcuts remapped to common conventions** (Acrobat / Chrome PDF / browsers /
+  VS Code / Edge Read Aloud); `?`/shifted-symbol bindings now actually fire.
+- Tooltip: longer first delay, instant for neighbours, never on a rolling face.
+
+- **Kokoro WebGPU out-of-memory** (`VK_ERROR_OUT_OF_DEVICE_MEMORY` + cascading "Invalid
+  Buffer" errors on low-VRAM GPUs): GPU device errors / NaN-or-silent output now trigger a
+  reload on WASM, and `tts.preferWebGPU` is switched off. Long sentences are synthesised in
+  ≤220-char chunks to cap per-call memory.
+- **Erase all annotations** (`annot.clearAll`, undoable): trash button in the annotation
+  bar, double-click the eraser button, double middle-click on a page, or Ctrl+Shift+Del.
+
+- **Toolbar invisible on first load** — the dock only set a face's angle when rolling, so
+  the initial main face sat at 90° (edge-on). Faces now register at their resting angle.
+  Toggling the toolbar (`t`) tips it away/back instead of display:none; the reveal handle fades.
+- **Sidebar slides** in/out (0.32 s) and the pages re-fit every frame while it moves
+  (`pdfViewer.animateResize`) — no scale jump, no transient horizontal scrollbar.
+
+- **Consistent, animated panels** — find bar moved into the dock (same spot/roll as other
+  bars); command palette fades + lifts; note editor pops in/out; messages fade in/out one at
+  a time above the toolbar; error banner drops in. All bars share height/padding/radius/
+  button size (tokens in `viewer.css`). Toolbar toggle buttons show an animated on/off state.
+
+- **Jumpy text selection** — ported pdf.js's selection guard (`.endOfContent` block moved
+  after the selection focus) so dragging over gaps no longer grabs the rest of the page.
+- **Choppy zoom on low-end machines** — zoom now animates as a compositor-only CSS transform
+  on `.pdf-content` and commits the real layout once at the end (Ctrl+wheel/pinch too).
+  Sidebar open/close now uses the same idea (FLIP: `pdfViewer.flipResize`).
+- **Colour palette popover** (`ui/colorPicker.ts`): theme-aware preset swatches + hue/shade
+  sliders + native "Custom…". Colours are stored **per theme** (`annotation.colors.light|dark`):
+  ink defaults black (light) / white (dark), pen black / green, highlighter yellow.
+- **Erase menu** (trash): in view / this page (Shift+Del) / everything (Ctrl+Shift+Del); all
+  one undo step each.
+
+## Earlier fixes
 
 - **TTS fell back to the browser voice even after the model downloaded** — root cause
   was WebGPU building its inference session failing with no WASM retry. `ensureKokoro`

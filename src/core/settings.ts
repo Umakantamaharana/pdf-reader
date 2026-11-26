@@ -16,7 +16,7 @@
  *   const off = settings.subscribe('darkMode', (val) => applyDarkMode(val));
  */
 
-import { AppSettings, DEFAULT_SETTINGS, SCHEMA_VERSION } from './schema';
+import { AppSettings, DEFAULT_PRESETS, DEFAULT_SETTINGS, SCHEMA_VERSION, SOFT_NIGHT } from './schema';
 
 type Listener = (value: unknown, path: string, all: AppSettings) => void;
 type Migration = (prev: any) => any;
@@ -60,7 +60,21 @@ function setPath(obj: any, path: string, value: unknown): void {
  * Example for a future v2:
  *   migrations[1] = (s) => { s.tts.voice ??= 'af_bella'; return s; };
  */
-const migrations: Record<number, Migration> = {};
+const migrations: Record<number, Migration> = {
+  // v1 → v2: the four colour presets were replaced by the single "Soft Night"
+  // theme (brightness 1, contrast 0.6). Arrays aren't deep-merged, so the old
+  // stored preset list must be swapped explicitly.
+  1: (s) => {
+    s.darkMode = {
+      ...(s.darkMode ?? {}),
+      presets: DEFAULT_PRESETS,
+      activePresetId: SOFT_NIGHT.id,
+      brightness: SOFT_NIGHT.brightness,
+      contrast: SOFT_NIGHT.contrast,
+    };
+    return s;
+  },
+};
 
 export class SettingsManager {
   private state: AppSettings = clone(DEFAULT_SETTINGS);

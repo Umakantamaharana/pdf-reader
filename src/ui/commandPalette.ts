@@ -6,6 +6,7 @@
  *   ↑/↓ or Ctrl+J/K to move, Enter to run, Esc to close.
  */
 
+import { setOpen } from './motion';
 import { CommandRegistry, RegisteredCommand } from '../core/commands';
 import { ShortcutManager } from '../core/shortcuts';
 import { settings } from '../core/settings';
@@ -26,7 +27,7 @@ export class CommandPalette {
 
     this.overlay = document.createElement('div');
     this.overlay.className = 'cmdk-overlay';
-    this.overlay.hidden = true;
+    setOpen(this.overlay, false);
     this.overlay.innerHTML = `
       <div class="cmdk-panel" role="dialog" aria-label="Command palette">
         <input class="cmdk-input" type="text" placeholder="Type a command…" autocomplete="off" spellcheck="false" />
@@ -51,7 +52,7 @@ export class CommandPalette {
   show(): void {
     if (!settings.get<boolean>('commandPalette.enabled')) return;
     this.open = true;
-    this.overlay.hidden = false;
+    setOpen(this.overlay, true);
     this.input.value = '';
     this.active = 0;
     this.refresh(true);
@@ -60,7 +61,8 @@ export class CommandPalette {
 
   close(): void {
     this.open = false;
-    this.overlay.hidden = true;
+    setOpen(this.overlay, false);
+    this.input.blur();
   }
 
   isOpen(): boolean {

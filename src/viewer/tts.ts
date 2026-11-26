@@ -10,6 +10,13 @@
  * approach as search): the current sentence is tinted, and with the native
  * engine individual words are highlighted via boundary events. Text is read
  * from the current page to the end of the document, built lazily page by page.
+ * With `tts.skipNonProse` (default) chart labels, number tables, running
+ * headers/footers and page numbers are skipped — see readingText.ts.
+ *
+ * ONNX Runtime's WASM is served from the extension bundle: transformers.js
+ * otherwise points onnxruntime at a jsDelivr CDN, and the MV3 CSP blocks that
+ * remote script, so every Kokoro session failed and reading silently fell back
+ * to the browser voice.
  *
  * Runs in the viewer page (not the offscreen doc) so synthesis timing and page
  * highlighting stay in sync; the offscreen scaffold remains for future
@@ -19,8 +26,17 @@
 import { PDFViewer } from './pdfViewer';
 import { settings } from '../core/settings';
 import { icon } from '../ui/icons';
+import { dock } from '../ui/dock';
+import { buildReadingText, BREAK } from './readingText';
+// Emitted locally by Vite (the same file onnxruntime-web's bundle references).
+import ortWasmUrl from '../../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm?url';
 
-interface Sentence { page: number; start: number; end: number; text: string }
+/**
+ * `start`/`end` are offsets in the page's joined item text (for highlighting);
+ * `text` is the cleaned spoken text, and `map[k]` maps spoken char k back to a
+ * joined-text offset (word highlighting from boundary events).
+ */
+interface Sentence { page: number; start: number; end: number; text: string; map: number[] }
 
 const HL_SENT = 'lumen-tts';
 const HL_WORD = 'lumen-tts-word';
@@ -45,6 +61,10 @@ export class TtsController {
   private kokoro: any = null;
   private kokoroLoading: Promise<any> | null = null;
   private audio = new Audio();
+  /** Speed the current Kokoro clip was synthesised at (playbackRate is relative to it). */
+  private clipSpeed = 1;
+  /** One-sentence-ahead synthesis so there's no gap while Kokoro generates. */
+  private prefetch: { key: string; blob: Promise<Blob> } | null = null;
 
   // UI
   private bar!: HTMLDivElement;
@@ -73,13 +93,21 @@ export class TtsController {
     await this.start(pageEl ? Number(pageEl.dataset.page) : this.pdf.state.page);
   }
 
+  /** Stop reading; the control bar stays open (use close() to dismiss it). */
   stop(): void {
     this.playToken++;
     this.audio.pause();
     speechSynthesis.cancel();
+    this.prefetch = null;
     this.state = 'idle';
     this.clearHighlight();
-    this.bar.hidden = true;
+    this.setPlayIcon();
+  }
+
+  /** Stop reading and hide the control bar. */
+  close(): void {
+    this.stop();
+    dock().close('tts'); // roll back to the main toolbar
   }
 
   nextSentence(): void {
@@ -100,7 +128,8 @@ export class TtsController {
   private async nudgeSpeed(d: number): Promise<void> {
     const v = Math.min(2, Math.max(0.5, Math.round((settings.get<number>('tts.speed') + d) * 10) / 10));
     await settings.set('tts.speed', v);
-    this.audio.playbackRate = v; // immediate effect for the Kokoro clip in flight
+    this.audio.playbackRate = v / this.clipSpeed; // immediate effect for the Kokoro clip in flight
+    this.prefetch = null; // the queued clip was synthesised at the old speed
     this.updateStatus();
   }
 
@@ -111,7 +140,7 @@ export class TtsController {
     const token = this.playToken;
     this.audio.pause();
     speechSynthesis.cancel();
-    this.bar.hidden = false;
+    dock().open('tts');
 
     if (fromIndex != null) {
       this.index = fromIndex;
@@ -137,7 +166,7 @@ export class TtsController {
       if (token !== this.playToken) return;
       this.highlightSentence(s);
       try {
-        await this.speak(s, token);
+        await this.speak(s, token, i);
       } catch {
         /* cancelled */
         return;
@@ -165,22 +194,100 @@ export class TtsController {
   }
 
   /** Speak one sentence, resolving when done; rejects if the token is superseded. */
-  private speak(s: Sentence, token: number): Promise<void> {
+  private speak(s: Sentence, token: number, index: number): Promise<void> {
     const engine = settings.get<string>('tts.engine');
     const useKokoro = engine !== 'native' && this.kokoro;
-    if (useKokoro) return this.speakKokoro(s, token);
+    if (useKokoro) return this.speakKokoro(s, token, index);
     // native (also the fallback while the model is still downloading)
     return this.speakNative(s, token);
   }
 
-  private async speakKokoro(s: Sentence, token: number): Promise<void> {
-    const voice = settings.get<string>('tts.voice') || 'af_bella';
+  private kokoroVoice(): string {
+    const v = settings.get<string>('tts.voice');
+    return KOKORO_VOICES.some(([id]) => id === v) ? v : 'af_bella';
+  }
+
+  /** Synthesise a sentence (reusing the prefetched clip when it matches). */
+  private synth(text: string): Promise<Blob> {
+    const voice = this.kokoroVoice();
     const speed = settings.get<number>('tts.speed');
-    const raw = await this.kokoro.generate(s.text, { voice, speed });
+    const key = `${voice}|${speed}|${text}`;
+    if (this.prefetch?.key === key) {
+      const { blob } = this.prefetch;
+      this.prefetch = null;
+      return blob;
+    }
+    return this.generateAudio(text, voice, speed);
+  }
+
+  /**
+   * Synthesise `text` to a WAV blob, robustly:
+   *  - long sentences are split at clause boundaries (≤ ~220 chars per call)
+   *    and the audio concatenated, which keeps GPU memory per call small;
+   *  - if WebGPU runs out of memory / its device errors (seen as
+   *    VK_ERROR_OUT_OF_DEVICE_MEMORY + cascading "Invalid Buffer" validation
+   *    errors) or it returns NaN/silent audio, the model is reloaded on the
+   *    CPU (WASM) backend, that choice is remembered, and the text is retried.
+   */
+  private async generateAudio(text: string, voice: string, speed: number): Promise<Blob> {
+    const kokoro = this.kokoro;
+    try {
+      const parts: Float32Array[] = [];
+      let rate = 24000;
+      for (const chunk of chunkText(text, 220)) {
+        const raw = await kokoro.generate(chunk, { voice, speed });
+        const data: Float32Array = raw.audio ?? raw.data;
+        rate = raw.sampling_rate ?? rate;
+        if (this.gpuFailed || !audioLooksValid(data)) throw new Error('WebGPU produced invalid audio');
+        parts.push(data);
+      }
+      return new Blob([encodeWav(concatAudio(parts), rate)], { type: 'audio/wav' });
+    } catch (err) {
+      if (this.kokoroDevice !== 'webgpu') throw err;
+      console.warn('Kokoro on WebGPU failed; switching to CPU (WASM)', err);
+      await this.fallBackToWasm();
+      if (!this.kokoro) throw err;
+      return this.generateAudio(text, voice, speed);
+    }
+  }
+
+  private gpuFailed = false;
+  private kokoroDevice: 'webgpu' | 'wasm' | null = null;
+  private fallingBack: Promise<void> | null = null;
+
+  /** Drop the WebGPU model and load the WASM one (once, even if called concurrently). */
+  private fallBackToWasm(): Promise<void> {
+    if (this.fallingBack) return this.fallingBack;
+    this.fallingBack = (async () => {
+      this.prefetch = null;
+      this.kokoro = null;
+      this.kokoroLoading = null;
+      // Remember it: this GPU can't hold the model, so don't try again next time.
+      await settings.set('tts.preferWebGPU', false);
+      this.toast('Graphics memory too low for the neural voice — switched to CPU');
+      await this.ensureKokoro();
+    })().finally(() => { this.fallingBack = null; });
+    return this.fallingBack;
+  }
+
+  private async speakKokoro(s: Sentence, token: number, index: number): Promise<void> {
+    const speed = settings.get<number>('tts.speed');
+    const blob = await this.synth(s.text);
     if (token !== this.playToken) throw new Error('cancelled');
-    const url = URL.createObjectURL(await rawToBlob(raw));
+    // Start generating the next sentence while this one plays.
+    void this.ensureIndex(index + 1).then(() => {
+      const next = this.sentences[index + 1];
+      if (!next || token !== this.playToken || !this.kokoro) return;
+      const voice = this.kokoroVoice();
+      const sp = settings.get<number>('tts.speed');
+      const p = this.generateAudio(next.text, voice, sp);
+      p.catch(() => {}); // a failed prefetch just falls back to on-demand synthesis
+      this.prefetch = { key: `${voice}|${sp}|${next.text}`, blob: p };
+    });
+    const url = URL.createObjectURL(blob);
     return new Promise<void>((resolve, reject) => {
       this.audio.src = url;
+      this.clipSpeed = speed;
       this.audio.playbackRate = 1;
       const done = () => { URL.revokeObjectURL(url); cleanup(); token === this.playToken ? resolve() : reject(new Error('cancelled')); };
       const fail = () => { URL.revokeObjectURL(url); cleanup(); reject(new Error('cancelled')); };
@@ -216,6 +323,17 @@ export class TtsController {
 
   // ---- Kokoro loading ---------------------------------------------------
 
+  /** Flag WebGPU device errors (OOM, lost device) so the next clip falls back. */
+  private async watchGpu(): Promise<void> {
+    try {
+      const tf: any = await import('@huggingface/transformers');
+      const device: any = tf?.env?.backends?.onnx?.webgpu?.device;
+      if (!device) return;
+      device.addEventListener('uncapturederror', () => { this.gpuFailed = true; });
+      void device.lost.then(() => { this.gpuFailed = true; });
+    } catch { /* best-effort */ }
+  }
+
   private ensureKokoro(): Promise<any> {
     if (this.kokoro) return Promise.resolve(this.kokoro);
     if (this.kokoroLoading) return this.kokoroLoading;
@@ -228,8 +346,18 @@ export class TtsController {
         try {
           const tf: any = await import('@huggingface/transformers');
           const wasm = tf?.env?.backends?.onnx?.wasm;
-          if (wasm) { wasm.numThreads = 1; wasm.proxy = false; }
-        } catch { /* best-effort */ }
+          if (wasm) {
+            wasm.numThreads = 1;
+            wasm.proxy = false;
+            // transformers.js sets wasmPaths to a jsDelivr URL on import; ORT
+            // would then import() its .mjs glue from the CDN, which the MV3 CSP
+            // blocks — the reason Kokoro never ran. Supplying only the .wasm
+            // URL makes ORT use the glue embedded in its bundle + our local file.
+            wasm.wasmPaths = { wasm: ortWasmUrl };
+          }
+        } catch (err) {
+          console.warn('Could not configure ONNX Runtime WASM paths', err);
+        }
 
         // Try the preferred device first, then fall back a level at a time.
         // WebGPU frequently downloads the weights fine but then fails to build
@@ -251,7 +379,10 @@ export class TtsController {
                 if (p?.status === 'progress' && p.total) this.setStatus(`Downloading model ${Math.round((p.loaded / p.total) * 100)}%`);
               },
             });
-            this.toast(`Neural voice ready (${device})`);
+            this.kokoroDevice = device;
+            this.gpuFailed = false;
+            if (device === 'webgpu') this.watchGpu();
+            this.toast(`Neural voice ready (${device === 'webgpu' ? 'GPU' : 'CPU'})`);
             this.populateVoices();
             this.updateStatus();
             return this.kokoro;
@@ -263,7 +394,8 @@ export class TtsController {
         throw lastErr ?? new Error('Kokoro unavailable');
       } catch (err) {
         console.warn('Kokoro load failed, using native voice', err);
-        this.toast('Using browser voice (neural model unavailable)');
+        this.toast('Using browser voice (neural model unavailable — see console)');
+        this.setStatus('Browser voice');
         this.kokoroLoading = null;
         return null;
       }
@@ -284,11 +416,21 @@ export class TtsController {
 
   private async buildPage(page: number): Promise<void> {
     this.builtPage = page;
-    const items = await this.pdf.getPageItems(page);
-    const text = items.join('');
-    for (const [start, end] of splitSentences(text)) {
-      const t = text.slice(start, end).trim();
-      if (t) this.sentences.push({ page, start, end, text: t });
+    const skip = settings.get<boolean>('tts.skipNonProse');
+    const geom = await this.pdf.getPageTextItems(page);
+    const regions = skip ? await this.pdf.getImageRegions(page).catch(() => []) : [];
+    const { text, map } = buildReadingText(geom, regions, skip);
+    for (const [rs, re] of splitSentences(text)) {
+      // Trim without changing lengths inside the sentence (keeps `map` exact).
+      let a = rs;
+      let b = re;
+      while (a < b && /\s/.test(text[a])) a++;
+      while (b > a && /\s/.test(text[b - 1])) b--;
+      if (a >= b) continue;
+      const spoken = text.slice(a, b).replace(/\s/g, ' ');
+      if (!/[\p{L}\p{N}]/u.test(spoken)) continue; // lone punctuation / bullets
+      const smap = map.slice(a, b);
+      this.sentences.push({ page, start: smap[0], end: smap[smap.length - 1] + 1, text: spoken, map: smap });
     }
   }
 
@@ -311,8 +453,10 @@ export class TtsController {
     if (!supportsHL) return;
     const layer = this.pdf.getTextLayer(s.page);
     if (!layer) return;
-    const start = s.start + charIndex;
-    const end = s.start + charIndex + (len || wordLenAt(s.text, charIndex));
+    const last = s.map.length - 1;
+    const wl = len || wordLenAt(s.text, charIndex);
+    const start = s.map[Math.min(charIndex, last)];
+    const end = s.map[Math.min(charIndex + wl - 1, last)] + 1;
     const range = rangeFor(layer.items, layer.divs, start, end);
     const hl = new (globalThis as any).Highlight();
     if (range) hl.add(range);
@@ -330,12 +474,11 @@ export class TtsController {
   private buildBar(): void {
     this.bar = document.createElement('div');
     this.bar.className = 'tts-bar';
-    this.bar.hidden = true;
     this.bar.innerHTML = `
       <button class="tts-btn" data-act="prev" title="Previous sentence (Ctrl+←)" aria-label="Previous sentence">${icon('skip-back')}</button>
-      <button class="tts-btn tts-play" data-act="play" title="Play/Pause (Space)" aria-label="Play or pause">${icon('play')}</button>
+      <button class="tts-btn tts-play" data-act="play" title="Play/Pause (Ctrl+Shift+U)" aria-label="Play or pause">${icon('play')}</button>
       <button class="tts-btn" data-act="next" title="Next sentence (Ctrl+→)" aria-label="Next sentence">${icon('skip-forward')}</button>
-      <button class="tts-btn" data-act="stop" title="Stop (Shift+Space)" aria-label="Stop">${icon('stop-circle')}</button>
+      <button class="tts-btn" data-act="stop" title="Stop" aria-label="Stop">${icon('stop-circle')}</button>
       <button class="tts-btn" data-act="slower" title="Slower ([)" aria-label="Slower">${icon('minus')}</button>
       <button class="tts-btn" data-act="faster" title="Faster (])" aria-label="Faster">${icon('plus')}</button>
       <select class="tts-engine" title="Engine">
@@ -343,8 +486,9 @@ export class TtsController {
         <option value="native">Browser voice</option>
       </select>
       <select class="tts-voice" title="Voice"></select>
-      <span class="tts-status"></span>`;
-    document.body.appendChild(this.bar);
+      <span class="tts-status"></span>
+      <button class="tts-btn tts-close" data-act="close" title="Close read-aloud (Esc)" aria-label="Close read-aloud">${icon('x')}</button>`;
+    dock().register('tts', this.bar);
     this.statusEl = this.bar.querySelector('.tts-status')!;
     this.playBtn = this.bar.querySelector('.tts-play')!;
 
@@ -355,6 +499,7 @@ export class TtsController {
         else if (a === 'next') this.nextSentence();
         else if (a === 'prev') this.prevSentence();
         else if (a === 'stop') this.stop();
+        else if (a === 'close') this.close();
         else if (a === 'faster') void this.speedUp();
         else if (a === 'slower') void this.speedDown();
       }),
@@ -404,7 +549,8 @@ export class TtsController {
 function splitSentences(text: string): Array<[number, number]> {
   const out: Array<[number, number]> = [];
   let start = 0;
-  const re = /[.!?…]+[\s)"']*\s/g;
+  // Terminal punctuation followed by whitespace, or a forced break after a heading.
+  const re = new RegExp(`[.!?…]+[\\s)"'”’]*\\s|${BREAK}`, 'g');
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     const end = m.index + m[0].length;
@@ -449,14 +595,48 @@ function rangeFor(items: string[], divs: HTMLElement[], start: number, end: numb
   }
 }
 
-/** Convert a kokoro-js RawAudio to a WAV Blob (with a manual-encode fallback). */
-async function rawToBlob(raw: any): Promise<Blob> {
-  if (typeof raw?.toBlob === 'function') {
-    try { return await raw.toBlob(); } catch { /* fall through */ }
+/** Split long text at clause boundaries into chunks of at most ~`max` chars. */
+function chunkText(text: string, max: number): string[] {
+  if (text.length <= max) return [text];
+  const out: string[] = [];
+  let rest = text;
+  while (rest.length > max) {
+    const window = rest.slice(0, max);
+    let cut = Math.max(window.lastIndexOf(', '), window.lastIndexOf('; '), window.lastIndexOf(': '), window.lastIndexOf(' – '));
+    if (cut < max * 0.4) cut = window.lastIndexOf(' ');
+    if (cut <= 0) cut = max;
+    out.push(rest.slice(0, cut + 1).trim());
+    rest = rest.slice(cut + 1);
   }
-  const data: Float32Array = raw.audio ?? raw.data;
-  const sr: number = raw.sampling_rate ?? 24000;
-  return new Blob([encodeWav(data, sr)], { type: 'audio/wav' });
+  if (rest.trim()) out.push(rest.trim());
+  return out;
+}
+
+/** Real speech: finite samples and not (near-)silence. A broken GPU run yields NaN or zeros. */
+function audioLooksValid(data: Float32Array | undefined): boolean {
+  if (!data || data.length === 0) return false;
+  let peak = 0;
+  const step = Math.max(1, Math.floor(data.length / 4000));
+  for (let i = 0; i < data.length; i += step) {
+    const v = data[i];
+    if (!Number.isFinite(v)) return false;
+    const a = Math.abs(v);
+    if (a > peak) peak = a;
+  }
+  return peak > 1e-3;
+}
+
+function concatAudio(parts: Float32Array[]): Float32Array {
+  if (parts.length === 1) return parts[0];
+  const gap = 2400; // 0.1 s of silence between chunks at 24 kHz
+  const total = parts.reduce((n, p) => n + p.length, 0) + gap * (parts.length - 1);
+  const out = new Float32Array(total);
+  let off = 0;
+  parts.forEach((p, i) => {
+    out.set(p, off);
+    off += p.length + (i < parts.length - 1 ? gap : 0);
+  });
+  return out;
 }
 
 function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {

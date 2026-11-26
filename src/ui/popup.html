@@ -4,15 +4,21 @@
     <meta charset="utf-8" />
     <title>Lumen PDF</title>
     <style>
+      /* Light by default; dark while the reader's dark mode is on (popup.ts). */
+      :root { --bg: #ffffff; --text: #1d1f24; --accent: #26282e; --accent-ink: #fff;
+              --field: #f3f4f6; --border: rgba(0,0,0,0.12); --ghost: rgba(0,0,0,0.06); color-scheme: light; }
+      body.lumen-dark { --bg: #23252a; --text: #e6e8eb; --accent: #e6e8eb; --accent-ink: #17181b;
+              --field: #1b1c1f; --border: rgba(255,255,255,0.12); --ghost: rgba(255,255,255,0.08); color-scheme: dark; }
       * { box-sizing: border-box; }
-      body { width: 280px; margin: 0; font: 14px system-ui, sans-serif; background: #23262d; color: #e8ebf0; }
+      body { width: 280px; margin: 0; font: 14px system-ui, sans-serif; background: var(--bg); color: var(--text); }
       header { padding: 14px 16px 8px; font-weight: 700; }
       .row { display: flex; gap: 8px; padding: 6px 16px 16px; }
       button { flex: 1; padding: 10px; border: none; border-radius: 8px; cursor: pointer;
-               background: #4dabf7; color: #04121f; font-weight: 600; }
-      button.ghost { background: rgba(255,255,255,0.08); color: #e8ebf0; }
-      input { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #3a3f49;
-              background: #1b1e24; color: #e8ebf0; }
+               background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+      button.ghost { background: var(--ghost); color: var(--text); }
+      input { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid var(--border);
+              background: var(--field); color: var(--text); outline: none; }
+      input:focus { border-color: var(--accent); }
       .field { padding: 0 16px 10px; }
       small { opacity: 0.6; }
     </style>
