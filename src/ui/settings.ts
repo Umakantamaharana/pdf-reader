@@ -101,7 +101,22 @@ const SECTIONS: Section[] = [
         { value: 'word', label: 'Word' },
         { value: 'sentence', label: 'Sentence' },
       ] },
-      { kind: 'toggle', path: 'tts.preferWebGPU', label: 'Prefer WebGPU (fallback to WASM)' },
+      { kind: 'select', path: 'tts.device', label: 'Neural voice runs on', options: [
+        { value: 'auto', label: 'Auto (GPU, CPU if it fails)' },
+        { value: 'gpu', label: 'GPU (WebGPU)' },
+        { value: 'cpu', label: 'CPU (works everywhere)' },
+      ] },
+      { kind: 'select', path: 'tts.readingMode', label: 'Reading style', options: [
+        { value: 'clean', label: 'Clean — skip citations, links, maths; read symbols as words' },
+        { value: 'verbatim', label: 'Verbatim — read the text as written' },
+      ] },
+      { kind: 'select', path: 'tts.lookahead', label: 'Prepare ahead (buffer)', options: [
+        { value: 'off', label: 'Off' },
+        { value: '1', label: '1 sentence' },
+        { value: '2', label: '2 sentences' },
+        { value: '3', label: '3 sentences' },
+        { value: '5', label: '5 sentences' },
+      ] },
       { kind: 'toggle', path: 'tts.skipNonProse', label: 'Read like a person (skip charts, tables, headers & page numbers)' },
       { kind: 'toggle', path: 'tts.fallbackToNativeWhileLoading', label: 'Use browser voice while model loads' },
     ],

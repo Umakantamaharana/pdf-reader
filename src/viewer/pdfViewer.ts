@@ -33,6 +33,7 @@ interface PageEntry {
   el: HTMLDivElement;
   canvas: HTMLCanvasElement;
   textLayerDiv: HTMLDivElement;
+  linkLayer: HTMLDivElement;
   textLayerRendered: boolean;
   textDivs: HTMLElement[]; // one span per text item (index-aligned with textItems)
   textItems: string[]; // the item strings, index-aligned with textDivs
@@ -176,10 +177,15 @@ export class PDFViewer {
       const textLayerDiv = document.createElement('div');
       textLayerDiv.className = 'textLayer';
       el.appendChild(textLayerDiv);
+      // Clickable PDF links (TOC entries, cross-references, URLs) sit above the text.
+      const linkLayer = document.createElement('div');
+      linkLayer.className = 'linkLayer';
+      el.appendChild(linkLayer);
       return {
         el,
         canvas,
         textLayerDiv,
+        linkLayer,
         textLayerRendered: false,
         textDivs: [],
         textItems: [],
@@ -335,6 +341,7 @@ export class PDFViewer {
     entry.rendered = false;
     entry.textLayerRendered = false;
     entry.textLayerDiv.replaceChildren();
+    entry.linkLayer.replaceChildren();
     entry.textDivs = [];
     entry.textItems = [];
   }
@@ -424,6 +431,7 @@ export class PDFViewer {
     });
     await textLayer.render();
     guardTextLayer(entry.textLayerDiv); // smooth selection across span gaps
+    void this.renderLinks(entry, page, viewport);
     entry.textDivs = textLayer.textDivs as HTMLElement[];
     entry.textItems = textLayer.textContentItemsStr;
     entry.textLayerRendered = true;
@@ -431,6 +439,114 @@ export class PDFViewer {
   }
 
   private renderTimer: number | undefined;
+
+  /**
+   * Build the page's link layer from its Link annotations. Boxes are placed in
+   * percent of the page so they track zoom (incl. the GPU zoom preview) without
+   * re-layout. Internal destinations jump (with Back history), named actions
+   * map to navigation, and web/mail links open in a new tab.
+   */
+  private async renderLinks(entry: PageEntry, page: PDFPageProxy, viewport: any): Promise<void> {
+    let annots: any[] = [];
+    try {
+      annots = await page.getAnnotations({ intent: 'display' });
+    } catch {
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    for (const a of annots) {
+      if (a.subtype !== 'Link' || !a.rect) continue;
+      const hasDest = a.dest != null;
+      const url: string | undefined = a.url && /^(https?|mailto):/i.test(a.url) ? a.url : undefined;
+      const action: string | undefined = a.action;
+      if (!hasDest && !url && !action) continue;
+      const [x1, y1, x2, y2] = viewport.convertToViewportRectangle(a.rect);
+      const left = Math.min(x1, x2), top = Math.min(y1, y2);
+      const w = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
+      if (w < 1 || h < 1) continue;
+      const link = document.createElement('a');
+      link.className = 'pdf-link';
+      link.style.left = `${(left / viewport.width) * 100}%`;
+      link.style.top = `${(top / viewport.height) * 100}%`;
+      link.style.width = `${(w / viewport.width) * 100}%`;
+      link.style.height = `${(h / viewport.height) * 100}%`;
+      if (url) {
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.title = url;
+      } else {
+        link.href = '#';
+        link.title = action ? action.replace(/([a-z])([A-Z])/g, '$1 $2') : 'Go to section';
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          if (hasDest) void this.followLink(a.dest);
+          else if (action) void this.runNamedAction(action);
+        });
+      }
+      frag.appendChild(link);
+    }
+    entry.linkLayer.replaceChildren(frag);
+  }
+
+  private async runNamedAction(action: string): Promise<void> {
+    if (action === 'NextPage') return this.nextPage();
+    if (action === 'PrevPage') return this.prevPage();
+    if (action === 'FirstPage') return this.firstPage();
+    if (action === 'LastPage') return this.lastPage();
+    if (action === 'GoBack') return this.back();
+    if (action === 'GoForward') return this.forward();
+  }
+
+  // ---- Link history (Back / Forward, like a browser) --------------------
+
+  private backStack: Array<{ page: number; top: number; left: number }> = [];
+  private forwardStack: Array<{ page: number; top: number; left: number }> = [];
+  private linkListeners = new Set<(page: number) => void>();
+
+  /** Notified after a link/outline jump (the viewer shows a "Back" hint). */
+  onLinkJump(fn: (page: number) => void): () => void {
+    this.linkListeners.add(fn);
+    return () => this.linkListeners.delete(fn);
+  }
+
+  private here() {
+    return { page: this.state.page, top: this.container.scrollTop, left: this.container.scrollLeft };
+  }
+
+  /** Follow an internal link / outline entry, remembering where we came from. */
+  async followLink(dest: unknown): Promise<void> {
+    const target = await this.resolveDestination(dest);
+    if (!target) return;
+    this.backStack.push(this.here());
+    if (this.backStack.length > 50) this.backStack.shift();
+    this.forwardStack = [];
+    await this.goToDestination(dest);
+    this.linkListeners.forEach((fn) => fn(target.page));
+  }
+
+  async back(): Promise<void> {
+    const to = this.backStack.pop();
+    if (!to) return;
+    this.forwardStack.push(this.here());
+    await this.restorePosition(to);
+  }
+
+  async forward(): Promise<void> {
+    const to = this.forwardStack.pop();
+    if (!to) return;
+    this.backStack.push(this.here());
+    await this.restorePosition(to);
+  }
+
+  private async restorePosition(p: { page: number; top: number; left: number }): Promise<void> {
+    if (this.state.layout === 'single') return this.goToPage(p.page);
+    this.state.page = p.page;
+    const behavior: ScrollBehavior = this.container.classList.contains('smooth') ? 'smooth' : 'auto';
+    this.container.scrollTo({ top: p.top, left: p.left, behavior });
+    await this.renderPage(p.page);
+    this.emit();
+  }
 
   /** Invalidate all cached renders (after zoom / rotation / layout change).
    *  The layout (box sizes + scroll anchor) updates immediately; with

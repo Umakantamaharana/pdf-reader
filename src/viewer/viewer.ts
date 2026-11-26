@@ -53,6 +53,9 @@ async function main() {
     scroll.dataset.layout = s.layout;
   });
 
+  // After a link / contents jump, say where we went and how to come back.
+  pdf.onLinkJump((page) => toast(`Page ${page} — Alt+← to go back`));
+
   // Smooth scrolling (wheel + arrows + programmatic) follows the setting.
   const applySmooth = () => scroll.classList.toggle('smooth', settings.get<boolean>('viewing.smoothScroll'));
   applySmooth();
@@ -143,6 +146,8 @@ function registerCommands(
     'nav.nextPage': () => pdf.nextPage(),
     'nav.prevPage': () => pdf.prevPage(),
     'nav.firstPage': () => pdf.firstPage(),
+    'nav.back': () => pdf.back(),
+    'nav.forward': () => pdf.forward(),
     'nav.lastPage': () => pdf.lastPage(),
     'nav.gotoPage': () => {
       const n = Number(prompt('Go to page:', String(pdf.state.page)));
@@ -233,7 +238,7 @@ function registerCommands(
 
 function stubbed(ids: string[]): Record<string, () => void> {
   const out: Record<string, () => void> = {};
-  for (const id of ids) out[id] = () => toast(`"${id}" lands in a later step`);
+  for (const id of ids) out[id] = () => toast('Bookmarks are coming in a future update');
   return out;
 }
 

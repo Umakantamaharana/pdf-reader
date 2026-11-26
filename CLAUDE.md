@@ -1,153 +1,185 @@
 # CLAUDE.md
 
-Guidance for AI agents (and humans) working in this repo. Read this before making
-changes.
+Engineering guide for anyone (humans or AI coding assistants) changing this repo. Read
+it before making changes. For status and the release checklist see
+[HANDOFF.md](./HANDOFF.md); for features see [README.md](./README.md).
 
 ## What this is
 
-**Lumen PDF** — a Manifest V3 Chrome extension: a keyboard-first PDF reader and
-annotator. TypeScript + Vite + `@crxjs/vite-plugin`. Runtime libs: `pdfjs-dist`
-(render), `pdf-lib` (annotation export), `kokoro-js` + `@huggingface/transformers`
-(neural TTS). No framework — plain DOM and classes.
+**Lumen PDF** is a Manifest V3 Chrome extension: a keyboard-first PDF reader and
+annotator.
+
+- **Stack:** TypeScript + Vite + `@crxjs/vite-plugin`. No framework; plain DOM and
+  classes.
+- **Runtime libraries:** `pdfjs-dist` (rendering), `pdf-lib` (annotated export),
+  `kokoro-js` + `@huggingface/transformers` / `onnxruntime-web` (neural TTS).
 
 ## Commands
 
 ```bash
-npm install
+npm install --onnxruntime-node-install-cuda=skip   # skip the optional CUDA download
 npm run build       # tsc --noEmit THEN vite build → dist/   (run this to verify a change)
 npm run typecheck   # tsc --noEmit only
-npm run dev         # vite build --watch (dev mode)
+npm run dev         # vite build --watch
 ```
 
-There is **no test suite** and **no browser/E2E harness** — correctness is verified by
-`tsc` + a clean `vite build`, and by reasoning about the coordinate math. After any
-change, run `npm run build` and make sure it's green. Load/verify manually via
-`chrome://extensions` → Load unpacked → `dist/`.
+There is **no test suite** and **no browser/E2E harness**. Correctness is verified by
+`tsc`, a clean `vite build`, small `tsx` scripts for pure logic (e.g. `readingText.ts`),
+and the manual smoke test in HANDOFF.md. Run `npm run build` after every change. To
+check behaviour, load `dist/` unpacked in `chrome://extensions`.
 
 ## Hard constraints (MV3 — do not violate)
 
-- **No remote code.** CSP is `script-src 'self' 'wasm-unsafe-eval'`. Everything must be
-  bundled. The pdf.js worker and ONNX WASM are emitted locally by Vite; pdf.js cmaps +
-  standard fonts ship in `public/pdfjs/`. Do **not** add CDN `<script>`/font/icon
-  dependencies. Icons are inlined SVG (`src/ui/icons.ts`) for exactly this reason.
-- **Reference bundled pdf.js assets by absolute URL** via `chrome.runtime.getURL('pdfjs/…')`,
-  never a relative path (the viewer lives under `/src/viewer/`, so relative paths 404).
-- **No blob: workers** — onnxruntime runs single-threaded on the main thread
-  (`wasm.numThreads = 1; wasm.proxy = false`); WebGPU is used when available.
-- Anything added to `public/` is copied to the extension root and must also be listed
-  under `web_accessible_resources` in `manifest.json` if the page fetches it.
+- **No remote code.** The CSP is `script-src 'self' 'wasm-unsafe-eval'; worker-src
+  'self'`, so everything must be bundled. The pdf.js worker, the ONNX Runtime WASM and
+  the voice worker are emitted locally by Vite; pdf.js cmaps and standard fonts ship in
+  `public/pdfjs/`. Never add CDN scripts, fonts or icons. Icons are inline SVG
+  (`src/ui/icons.ts`) and fonts are local system stacks.
+- **ONNX WASM path:** transformers.js sets `env.backends.onnx.wasm.wasmPaths` to a
+  jsDelivr URL on import, and ORT would `import()` its `.mjs` glue from there, which the
+  CSP blocks. `kokoroWorker.ts` overrides it with `{ wasm: <local ?url> }`. Keep that
+  override.
+- **Reference bundled pdf.js assets by absolute URL** via
+  `chrome.runtime.getURL('pdfjs/…')`, never a relative path. The viewer lives under
+  `/src/viewer/`, so relative paths 404.
+- **No blob: workers.** Workers must be bundled files
+  (`new Worker(new URL('./x.ts', import.meta.url), { type: 'module' })`). ORT runs
+  single-threaded (`numThreads = 1`) because the pages are not cross-origin isolated.
+- Anything in `public/` is copied to the extension root. If a page fetches it, it must
+  also be listed under `web_accessible_resources`.
+- **Permissions are minimal on purpose** (the store rejects unused ones). Don't add a
+  permission without code that uses it, and add its justification to HANDOFF.md.
 
 ## Core architecture & data flow
 
-- **`core/schema.ts` is the single source of truth.** It defines `AppSettings`
-  (the whole settings model + `DEFAULT_SETTINGS`) and `COMMANDS` (the command catalog
-  with default keybindings). Command **ids are persisted** in keymaps/history — keep
-  them stable; add by appending.
-- **Settings** (`core/settings.ts`) is a reactive singleton. `settings.get(path)` /
-  `settings.set(path, v)` use dot-paths; `settings.subscribe(path, fn)` fires on that
-  path or any ancestor/descendant, and cross-context changes sync via
-  `chrome.storage.onChanged`. Stored data is deep-merged over `DEFAULT_SETTINGS`, so
-  **adding a field to the schema auto-back-fills existing users** (no migration needed
-  for additive changes; use `migrations[version]` only for shape changes +
-  bump `SCHEMA_VERSION`).
+- **`core/schema.ts` is the single source of truth.** It defines `AppSettings`,
+  `DEFAULT_SETTINGS` and `COMMANDS` (the command catalogue with default keys).
+  - Command **ids are persisted** in keymaps, so keep them stable and add new ones by
+    appending.
+  - `defaultKeys` may list alternatives separated by `|`.
+- **Settings** (`core/settings.ts`) is a reactive singleton.
+  - `get(path)` / `set(path, v)` / `patch({...})` use dot-paths.
+  - `subscribe(path, fn)` fires for that path, its ancestors and its descendants.
+    Changes in other contexts sync via `chrome.storage.onChanged`.
+  - Stored data is deep-merged over defaults, so **adding a field auto-back-fills**.
+    Arrays are replaced, not merged. Use `migrations[version]` and bump `SCHEMA_VERSION`
+    only for shape changes (v1→v2 replaced the colour presets).
 - **Commands** (`core/commands.ts`): `commands.dispatch(id)` runs a handler. Handlers
-  are registered in **`viewer/viewer.ts` → `registerCommands()`** — this is where ids
-  become behavior. The toolbar, annotation bar, palette, and keyboard all go through
-  `dispatch`, so UI and keyboard stay in sync automatically.
-- **Shortcuts** (`core/shortcuts.ts`) maps canonical chords/sequences → command ids and
-  calls `dispatch`. It knows nothing about what commands do.
-- **`viewer/pdfViewer.ts`** owns rendering state (`ViewerState`) and emits via
-  `onChange`. Other engines attach as layers and react to `onPageRendered(pageNum)`
-  (fired when a page's canvas + text layer finish) — search re-paints highlights, dark
-  mode re-applies image protection, annotations re-draw. **If you add a per-page
-  overlay, hook `onPageRendered`** so it survives zoom/layout/eviction re-renders.
+  are registered in **`viewer/viewer.ts` → `registerCommands()`**. The toolbar, bars,
+  palette and keyboard all dispatch, so they stay in sync.
+- **Shortcuts** (`core/shortcuts.ts`) map canonical chords and sequences to command ids.
+  - Every ctrl chord gets a ⌘ twin on macOS.
+  - Shifted symbols are matched by their character (`?`, and `plus` for `+`).
+  - The Settings keymap capture uses the same `eventToChord`.
+- **`viewer/pdfViewer.ts`** owns rendering state (`ViewerState`) and emits `onChange`.
+  - Other engines react to `onPageRendered(pageNum)`, which fires when a page's canvas
+    and text layer finish. Search re-paints, dark mode re-protects images, annotations
+    re-draw.
+  - **A per-page overlay must hook `onPageRendered`** to survive zoom, layout changes
+    and eviction.
+- **The dock** (`ui/dock.ts`) is the single toolbar slot. The main toolbar and every
+  sub-toolbar (annotation, read-aloud, night mode, find) are faces of one drum:
+  `dock().open(name)` rolls forward, `close(name)` rolls back, and faces stack. Don't
+  position a bar yourself; register a face.
+- **Theme:** `darkmode.ts` toggles `body.lumen-dark`, and every UI colour is a CSS token
+  that switches with it (`viewer.css` / `settings.css` / popup).
 
-## Coordinate model (important for annotations)
+## Rendering, zoom & layout
 
-Annotations are stored **scale-independently** so they survive zoom with no re-render:
+- **Pages live in `.pdf-content` inside the scroller.** Append pages to `content`, not
+  to the scroller.
+- **Double-buffered canvases:** `doRenderPage` draws into a detached canvas and swaps it
+  in. Canvases are sized to integer device pixels (`pixelBox`). Don't cache a page's
+  `<canvas>`; it's replaced on every render.
+- **Render guard:** each entry has `pending` (shared in-flight render) and `gen`
+  (invalidation counter). Stale renders discard their result. Keep both when touching
+  `renderPage`.
+- **Zoom = GPU preview, then commit** (`zoomTo` / `commitZoom`): a `transform: scale()`
+  on `.pdf-content`, then the real boxes resize around the same anchor in one frame and
+  re-render. `renderPage` does nothing while `animating`.
+- **Sidebar resize = FLIP** (`flipResize`): the margin changes instantly, the layout is
+  applied once, then the difference plays back as a transform.
+- **Centring:** block layout + `margin-left: round(…)` snapped to `--dpx`, not flexbox.
+  Flex centring clips the left side of a zoomed page.
+- **Smooth scroll** is a rAF tween in `scrollBy`, gated on the scroller's `.smooth`
+  class.
+- **Canvas eviction:** pages more than `KEEP_MARGIN` away are freed and re-render
+  (re-firing `onPageRendered`) when they come back.
+- **Links:** `renderLinks` places hit boxes in percent of the page. Internal jumps go
+  through `followLink` (Back/Forward history); the outline uses it too.
+- **Text selection:** `selectionGuard.ts` (ported from pdf.js) must be re-attached
+  whenever a text layer re-renders. `::selection` keeps `color: transparent` so the
+  fallback font never shows.
 
-- Text marks (highlight/underline/strike) store **page-relative fractions `[0..1]`**.
-- Vector strokes/shapes store **PDF points** against an SVG `viewBox="0 0 W H"`.
-- Overlays live in a `.annot-rot` wrapper **sized to the unrotated page and rotated by
-  CSS** to match the canvas; pointer input is inverse-mapped through the rotation
-  (`clientToFrac`). `getPageSize()` returns the unrotated (scale 1, rotation 0) size —
-  the coordinate space everything is stored in.
+## Coordinate model (annotations)
 
-Export (`annotations.ts → exportPdf`) bakes annotations into a copy of the PDF with
-pdf-lib, flipping Y (pdf.js is top-left origin, pdf-lib is bottom-left).
+Annotations are stored **independently of scale**:
 
-## Gotchas worth knowing
+- Text marks store **page fractions `[0..1]`**. Strokes and shapes store **PDF points**
+  against an SVG `viewBox="0 0 W H"`.
+- Overlays sit in `.annot-rot`, sized to the **unrotated** page and rotated by CSS.
+  Pointer input is inverse-mapped (`clientToFrac`). `getPageSize()` is the unrotated,
+  scale-1 size.
+- **Colours are stored in "paper" (light-theme) form.** `stored()` and `shown()` swap
+  pure black and white in dark mode (`swapBW`). Tool colours in settings are *screen*
+  colours, per theme (`annotation.colors.light|dark`).
+- **Text marks** take their boxes from text-node ranges only (`textRects`), merged per
+  line. Don't use `range.getClientRects()` directly; it doubles the boxes.
+- **Export** (`exportPdf`) uses pdf-lib and flips Y (pdf.js is top-left origin, pdf-lib
+  bottom-left). Text boxes and notes use the closest standard font.
 
-- **Centering vs. zoom clip:** the page scroller uses **block layout + `margin:auto`**,
-  not flexbox centering — flex `align-items:center` pushes an overflowing (zoomed) page
-  off-screen on both sides and clips the left. Don't reintroduce flex centering there.
-- **Smooth scroll** is a custom rAF tween in `pdfViewer.scrollBy` (CSS
-  `scroll-behavior:smooth` is unreliable / ignored under reduced-motion). It's gated on
-  the container's `.smooth` class (toggled from `viewing.smoothScroll`).
-- **Canvas eviction:** pages more than `KEEP_MARGIN` from the viewport have their canvas
-  freed; they re-render (and re-fire `onPageRendered`) on return. Don't assume a page
-  that rendered once is still rendered.
-- **Dark-mode image protection** uses `backdrop-filter` to re-invert image regions
-  (Chrome-only) and only engages in `smart-invert` mode. Regions come from
-  `pdfViewer.getImageRegions()` (replays the operator list, transform-tracked).
-- **TTS** lazy-loads Kokoro and falls back **WebGPU → WASM → native browser voice**;
-  native is used while the model downloads. `space` is bound to play/pause.
-- **ONNX WASM path:** transformers.js sets `env.backends.onnx.wasm.wasmPaths` to a
-  jsDelivr URL on import; ORT then `import()`s its `.mjs` glue from the CDN, which the
-  CSP blocks (Kokoro silently fails → browser voice). `tts.ts` overrides it with
-  `{ wasm: <local ?url> }` — keep that override.
-- **TTS reads `readingText.ts` output, not raw page text:** it skips chart labels,
-  number tables, headers/footers and page numbers (`tts.skipNonProse`) and keeps a
-  spoken→page offset `map` for highlighting. Don't index page text with spoken offsets.
-- **Page canvases are double-buffered** (`doRenderPage` renders into a detached canvas
-  and swaps it in), sized to integer device pixels (`pixelBox`). Don't cache a page's
-  `<canvas>` element — it's replaced on every render; query `.pdf-canvas` instead.
-- **Toolbars live in the dock** (`ui/dock.ts`): the main toolbar and every sub-toolbar
-  (annotation, read-aloud, night mode) are faces of one drum; `dock().open(name)` rolls
-  forward, `close(name)` rolls back. Don't position bars yourself — register a face.
-- **Panels animate via `ui/motion.ts`:** use `dismiss(el)` to remove a popover (plays the
-  exit animation) and `setOpen(el, bool)` for persistent ones; don't toggle `hidden` /
-  call `.remove()` directly. Shape/timing tokens: `--bar-radius`, `--panel-radius`,
-  `--bar-height`, `--btn-size`, `--motion-in/out/ease` in `viewer.css`. The find bar is a
-  dock face like the other sub-toolbars.
-- **Zoom is a GPU transform, then a commit** (`pdfViewer.zoomTo/commitZoom`): pages live in
-  `.pdf-content` inside the scroller; a zoom previews as `transform: scale()` on it
-  (compositor-only, smooth on weak hardware), then the real boxes are resized around the same
-  anchor in one frame and re-rendered. `renderPage` is a no-op while `animating`. Append
-  pages to `content`, not the scroller.
-- **Text selection guard** (`viewer/selectionGuard.ts`, ported from pdf.js's
-  TextLayerBuilder): `.endOfContent` + `.selecting` stop selections jumping across span gaps.
-  Re-attach it whenever a text layer is re-rendered.
-- **Shortcuts:** `defaultKeys` may list alternatives with `|`; ctrl chords get ⌘ twins on
-  macOS; shifted symbols are matched by their character (`?`, `plus` for `+`).
+## Read aloud
+
+- **`tts.ts` reads `readingText.ts` output, not raw page text.**
+  - `buildReadingText` filters non-prose lines.
+  - `cleanForSpeech` applies the Clean rules (`tts.readingMode`) on `(text, map)`
+    *before* sentence splitting.
+  - `map` converts spoken offsets back to page offsets for highlighting. Never index
+    page text with spoken offsets.
+- **Neural voice:** `KokoroClient` is a handle to `kokoroWorker.ts`; one client is one
+  model on one device. `dispose()` frees its memory, including GPU memory.
+  - Device order comes from `tts.device` (auto / gpu / cpu).
+  - A GPU error or NaN/silent output triggers `fallBackToCpu`.
+  - The browser voice is used while loading or if the neural voice fails.
+- **Look-ahead buffer** (`fillBuffer`, `tts.lookahead`): one clip at a time, keyed by
+  voice|speed|text, cleared on stop and on speed changes.
 - **`src/shim/node-empty.ts`** stubs `fs/promises` and `path` (aliased in
-  `vite.config.ts`) because kokoro-js statically imports them on a dead server path.
+  `vite.config.ts`) because kokoro-js imports them on an unused server code path.
+
+## UI conventions
+
+- **Glassmorphism** for every bar, panel and popover: the `--glass-*` tokens.
+- **Shared shape and motion tokens:** `--bar-radius`, `--panel-radius`, `--bar-height`,
+  `--btn-size`, `--motion-in/out/ease`, `--theme-fade`. Keep bars visually identical.
+- **Animate, don't pop:**
+  - Popovers leave via `dismiss(el)` and toggle via `setOpen(el, bool)` (`ui/motion.ts`).
+  - Bars use the dock.
+  - Don't toggle `hidden` or call `.remove()` directly on visible UI.
+- **No brand blue:** the accent is a neutral ink (`--accent` / `--accent-ink`). Content
+  colours (palettes, search and TTS highlights) are the exception.
+- **Tooltips:** set `title`; `ui/tooltip.ts` turns it into the styled tooltip.
+- Every file starts with a header comment explaining its role. Keep it current.
+- Prefer the existing settings, command and subscribe plumbing over ad-hoc state.
 
 ## How to…
 
-- **Add a command:** append to `COMMANDS` in `schema.ts` (id, title, category,
-  defaultKeys) → register its handler in `viewer.ts/registerCommands` → (optional) add a
-  toolbar/annotation-bar button with an `icon(...)`.
-- **Add a setting:** add the field to `AppSettings` + `DEFAULT_SETTINGS` in `schema.ts`
-  → it auto-back-fills; add a control to `src/ui/settings.ts` `SECTIONS` if it should be
-  user-editable; read it with `settings.get()` and react with `settings.subscribe()`.
-- **Add an icon:** add the inner SVG paths to `PATHS` in `src/ui/icons.ts`; use
-  `icon('name')` as `innerHTML`. Keep stroke-based, 24×24, `currentColor`.
+- **Add a command:**
+  1. Append it to `COMMANDS` in `schema.ts`.
+  2. Register its handler in `viewer.ts` → `registerCommands`.
+  3. Optionally add a button with `icon(...)`.
+- **Add a setting:**
+  1. Add the field to `AppSettings` + `DEFAULT_SETTINGS` (it back-fills).
+  2. Add a control to `SECTIONS` in `src/ui/settings.ts` if users should edit it.
+  3. Read it with `settings.get()` and react with `settings.subscribe()`.
+- **Add a sub-toolbar:** build the bar element, then `dock().register('name', el)`. Open
+  and close it with `dock().open/close`, and handle Esc in the `app.escape` command.
+- **Add an icon:** add the inner SVG paths to `PATHS` in `src/ui/icons.ts` (24×24,
+  stroke-based, `currentColor`).
 
-## Conventions
+## Commits
 
-- Keep the **glassmorphism** look consistent: new bars/panels/popovers use the
-  `--glass-*` tokens (translucent bg + `backdrop-filter: var(--glass-blur)` + hairline
-  border + shadow + inner highlight). Both `viewer.css` and `settings.css` share the
-  palette/accent.
-- Files are self-documenting with a header comment explaining their role — preserve/add
-  one when creating files.
-- Prefer the existing settings/command/subscribe plumbing over ad-hoc state.
-
-## Attribution for commits
-
-End commit messages with:
-
-```
-Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
-```
+- Author: **Umakanta Maharana** `<umakantamaharana70@gmail.com>` (the repo's git
+  config).
+- Do **not** add AI attribution trailers (no `Co-Authored-By` lines for assistants).
+- Use a short imperative subject line; the body groups changes by area.
+- Bump `version` in `manifest.json` + `package.json` for every store upload.

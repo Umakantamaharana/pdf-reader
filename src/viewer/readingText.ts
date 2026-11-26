@@ -209,3 +209,177 @@ function bodyFontSize(lines: Line[]): number {
   for (const [k, n] of hist) if (n > bestN) { best = k; bestN = n; }
   return best;
 }
+
+// ---------------------------------------------------------------------------
+// Clean reading — rule-based rewrite of the spoken text (no AI).
+//
+// Runs on the (text, map) pair *before* sentence splitting, so abbreviations
+// like "e.g." / "Fig." no longer cut sentences in half, and every inserted or
+// kept character still maps back to a page offset (highlighting stays right).
+// Removes what a listener can't follow without looking (citations, URLs,
+// figure/table/equation refs, stats parentheticals, footnote marks, inline
+// maths) and reads symbols/abbreviations as words.
+// ---------------------------------------------------------------------------
+
+type Replacer = string | ((m: RegExpExecArray) => string);
+
+function appendRange(dst: number[], src: number[], from: number, to: number): void {
+  for (let i = from; i < to; i++) dst.push(src[i]);
+}
+
+/** Regex replace that keeps `map` aligned (inserted chars map to the match start). */
+function replaceMapped(rt: ReadingText, re: RegExp, rep: Replacer): ReadingText {
+  const src = rt.text;
+  let out = '';
+  const map: number[] = [];
+  let last = 0;
+  re.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src))) {
+    if (m[0].length === 0) {
+      re.lastIndex++;
+      continue;
+    }
+    out += src.slice(last, m.index);
+    appendRange(map, rt.map, last, m.index);
+    const r = typeof rep === 'function' ? rep(m) : rep.replace(/\$(\d)/g, (_, d) => m![Number(d)] ?? '');
+    const at = rt.map[m.index] ?? (map.length ? map[map.length - 1] : 0);
+    for (let i = 0; i < r.length; i++) {
+      out += r[i];
+      map.push(at);
+    }
+    last = m.index + m[0].length;
+    if (!re.global) break;
+  }
+  out += src.slice(last);
+  appendRange(map, rt.map, last, src.length);
+  return { text: out, map };
+}
+
+const GREEK: Record<string, string> = {
+  α: 'alpha', β: 'beta', γ: 'gamma', δ: 'delta', ε: 'epsilon', ζ: 'zeta', η: 'eta', θ: 'theta',
+  κ: 'kappa', λ: 'lambda', μ: 'mu', ν: 'nu', ξ: 'xi', π: 'pi', ρ: 'rho', σ: 'sigma', τ: 'tau',
+  φ: 'phi', χ: 'chi', ψ: 'psi', ω: 'omega', Δ: 'delta', Σ: 'sigma', Ω: 'omega',
+};
+
+/** Symbols that mark a token as mathematics (not everyday prose punctuation). */
+const MATH_SYM = /[=≠∑∏∫√∂∇∈∉⊂⊆⊇∀∃↦∞⊕⊗∘^_∥⟨⟩]/;
+const SUBSUP = /[₀-₉ₐ-ₜ⁰-⁹ⁱⁿ⁺⁻ᵢ-ᵪⱼ]/;
+
+/** Drop runs of mathematical tokens (inline equations, variable soup). */
+function dropMath(rt: ReadingText): ReadingText {
+  const tokens: Array<{ s: number; e: number; math: boolean; small: boolean }> = [];
+  const re = /\S+/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(rt.text))) {
+    const t = m[0].replace(/^[("'[]+|[)"'\].,;:!?]+$/g, '');
+    const raw = m[0];
+    const math =
+      MATH_SYM.test(t) || SUBSUP.test(t) ||
+      (/^[\p{Script=Greek}]+\d*$/u.test(t) && t.length > 1) ||
+      /(^|[^\p{L}])[a-zA-Z]\(\w{1,3}\)/u.test(raw) || /\w\[\w{1,3}\]/.test(raw);
+    // Single letters / short numbers glue a run together ("x = a + b").
+    const small = /^([a-zA-Z]|\d{1,3}|[+\-−*/×·<>≤≥±()]+)$/.test(t);
+    tokens.push({ s: m.index, e: m.index + m[0].length, math, small });
+  }
+  const cuts: Array<[number, number]> = [];
+  for (let i = 0; i < tokens.length; i++) {
+    if (!tokens[i].math) continue;
+    let a = i, b = i;
+    while (a > 0 && (tokens[a - 1].math || tokens[a - 1].small)) a--;
+    while (b < tokens.length - 1 && (tokens[b + 1].math || tokens[b + 1].small)) b++;
+    // Keep a trailing sentence-ending period that was stuck to the last token.
+    let end = tokens[b].e;
+    const tail = rt.text.slice(tokens[b].s, end);
+    const punct = /[.;:!?]+$/.exec(tail);
+    if (punct) end -= punct[0].length;
+    cuts.push([tokens[a].s, end]);
+    i = b;
+  }
+  if (!cuts.length) return rt;
+  let out = '';
+  const map: number[] = [];
+  let last = 0;
+  for (const [s, e] of cuts) {
+    out += rt.text.slice(last, s);
+    appendRange(map, rt.map, last, s);
+    last = e;
+  }
+  out += rt.text.slice(last);
+  appendRange(map, rt.map, last, rt.text.length);
+  return { text: out, map };
+}
+
+/** Apply the clean-reading rules (see block comment above). */
+export function cleanForSpeech(input: ReadingText): ReadingText {
+  let rt = input;
+  const R = (re: RegExp, rep: Replacer) => (rt = replaceMapped(rt, re, rep));
+
+  // 1. Links, DOIs, e-mail addresses.
+  // (Lazy + lookahead so a sentence's final full stop isn't swallowed.)
+  R(/\b(?:https?:\/\/|www\.)\S+?(?=[.,;:!?)\]]*(?:\s|$))/gi, '');
+  R(/\b(?:doi|arxiv|isbn):?\s*\S+?(?=[.,;:!?)\]]*(?:\s|$))/gi, '');
+  R(/\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g, '');
+  // 2. Citations: [12], [3, 5–7], (Smith et al., 2019; Lee 2021).
+  R(/\s?\[\d+(?:\s*[-–,]\s*\d+)*\]/g, '');
+  R(/\s?\((?:see\s+|e\.g\.,?\s+)?(?:[A-Z][\p{L}'’-]+(?:\s+(?:et\s+al\.?|and|&)(?:\s+[A-Z][\p{L}'’-]+)?)?,?\s+(?:19|20)\d{2}[a-z]?[;,]?\s*)+\)/gu, '');
+  // 3. Parenthetical references to figures/tables/equations/sections.
+  R(/\s?\((?:see\s+|cf\.\s+)?(?:figs?\.?|figures?|tables?|tab\.|eqs?\.?|equations?|sections?|sec\.|appendix|§)\s*[\w.\-–, ]{0,16}\)/gi, '');
+  // 4. Statistics parentheticals: (p < 0.05), (n = 120, SD = 3.1).
+  R(/\s?\(\s*[\p{L}]{1,3}\s*[=<>≤≥]\s*[-\d.,]+(?:\s*[,;]\s*[\p{L}]{1,3}\s*[=<>≤≥]\s*[-\d.,]+)*\s*\)/gu, '');
+  // 5. Footnote markers glued to words: word¹, word*, word†.
+  R(/([\p{L})\].,;])[⁰¹²³⁴⁵⁶⁷⁸⁹*†‡§¶]+/gu, '$1');
+  // 6. Inline maths.
+  rt = dropMath(rt);
+  // 7. Abbreviations (before sentence splitting, so their dots don't end sentences).
+  R(/\be\.\s?g\.,?/gi, 'for example,');
+  R(/\bi\.\s?e\.,?/gi, 'that is,');
+  R(/\betc\.(?=\s+[a-z,;])/g, 'and so on');
+  R(/\betc\./g, 'and so on.');
+  R(/\bet\s+al\.?/g, 'and colleagues');
+  R(/\bvs\.?(?=\s)/gi, 'versus');
+  R(/\bcf\.\s?/gi, 'compare ');
+  R(/\bapprox\.\s?/gi, 'approximately ');
+  R(/\bresp\./gi, 'respectively');
+  R(/\bw\.r\.t\./gi, 'with respect to');
+  R(/\bFigs\.\s?/g, 'figures ');
+  R(/\bFig\.\s?/g, 'figure ');
+  R(/\bEqs\.\s?/g, 'equations ');
+  R(/\bEq\.\s?/g, 'equation ');
+  R(/\bSec\.\s?/g, 'section ');
+  R(/\bCh\.\s?/g, 'chapter ');
+  R(/\bVol\.\s?/g, 'volume ');
+  R(/\bpp\.\s?(?=\d)/g, 'pages ');
+  R(/\bp\.\s?(?=\d)/g, 'page ');
+  R(/\bNo\.\s?(?=\d)/g, 'number ');
+  R(/\bDr\.\s?/g, 'Doctor ');
+  R(/\bProf\.\s?/g, 'Professor ');
+  R(/\bMr\.\s?/g, 'Mister ');
+  R(/\bMrs\.\s?/g, 'Missus ');
+  R(/\bMs\.\s?/g, 'Miz ');
+  R(/\bca\.\s?(?=\d)/g, 'about ');
+  // 8. Symbols read as words.
+  R(/(\d)\s*[–—-]\s*(\d)/g, '$1 to $2');
+  R(/\s*%/g, ' percent');
+  R(/\s*±\s*/g, ' plus or minus ');
+  R(/≈\s*/g, 'about ');
+  R(/~\s*(?=\d)/g, 'about ');
+  R(/(\d)\s*[×x]\s*(\d)/g, '$1 by $2');
+  R(/\s*≤\s*/g, ' at most ');
+  R(/\s*≥\s*/g, ' at least ');
+  R(/(\w)\s*<\s*(\w)/g, '$1 less than $2');
+  R(/(\w)\s*>\s*(\w)/g, '$1 more than $2');
+  R(/\s*°\s*C\b/g, ' degrees Celsius');
+  R(/\s*°\s*F\b/g, ' degrees Fahrenheit');
+  R(/\s*°/g, ' degrees');
+  R(/\s*&\s*/g, ' and ');
+  R(/\s*→\s*/g, ' to ');
+  R(/[\p{Script=Greek}]/gu, (m) => (GREEK[m[0]] ? ` ${GREEK[m[0]]} ` : ''));
+  // 9. Bullets, stray glyphs, tidy-up.
+  R(/[•▪◦‣■□►▶✓✔✗✘※]/g, '');
+  R(/\(\s*\)|\[\s*\]/g, '');
+  R(/[ \t]+([,.;:!?])/g, '$1');
+  R(/([,;:])(?:\s*[,;:])+/g, '$1');
+  R(/[ \t]{2,}/g, ' ');
+  return rt;
+}

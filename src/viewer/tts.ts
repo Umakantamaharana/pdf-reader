@@ -18,18 +18,16 @@
  * remote script, so every Kokoro session failed and reading silently fell back
  * to the browser voice.
  *
- * Runs in the viewer page (not the offscreen doc) so synthesis timing and page
- * highlighting stay in sync; the offscreen scaffold remains for future
- * background reading.
+ * Playback and highlighting run in the viewer page; the neural model itself
+ * runs in a dedicated worker (kokoroWorker.ts) so the page never freezes.
  */
 
 import { PDFViewer } from './pdfViewer';
 import { settings } from '../core/settings';
 import { icon } from '../ui/icons';
 import { dock } from '../ui/dock';
-import { buildReadingText, BREAK } from './readingText';
-// Emitted locally by Vite (the same file onnxruntime-web's bundle references).
-import ortWasmUrl from '../../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm?url';
+import { buildReadingText, cleanForSpeech, BREAK } from './readingText';
+import { KokoroClient, KokoroDevice } from './kokoroClient';
 
 /**
  * `start`/`end` are offsets in the page's joined item text (for highlighting);
@@ -58,13 +56,16 @@ export class TtsController {
   private state: 'idle' | 'loading' | 'playing' | 'paused' = 'idle';
   private playToken = 0;
 
-  private kokoro: any = null;
-  private kokoroLoading: Promise<any> | null = null;
+  /** The loaded voice model (runs in a worker on GPU or CPU), or null. */
+  private kokoro: KokoroClient | null = null;
+  private kokoroLoading: Promise<KokoroClient | null> | null = null;
   private audio = new Audio();
   /** Speed the current Kokoro clip was synthesised at (playbackRate is relative to it). */
   private clipSpeed = 1;
-  /** One-sentence-ahead synthesis so there's no gap while Kokoro generates. */
-  private prefetch: { key: string; blob: Promise<Blob> } | null = null;
+  /** Look-ahead buffer: clips synthesised ahead of playback, keyed voice|speed|text. */
+  private buffer = new Map<string, Promise<Blob>>();
+  /** After a GPU failure this session, stay on the CPU even if Settings say GPU. */
+  private forceCpu = false;
 
   // UI
   private bar!: HTMLDivElement;
@@ -76,6 +77,12 @@ export class TtsController {
     this.toast = toast;
     this.buildBar();
     if (settings.get<boolean>('tts.preloadModelOnStart')) void this.ensureKokoro();
+    // Switching CPU/GPU in Settings reloads the model on the new device.
+    settings.subscribe('tts.device', () => {
+      this.forceCpu = false;
+      this.resetModel();
+      if (this.state !== 'idle' && settings.get<string>('tts.engine') !== 'native') void this.ensureKokoro();
+    });
   }
 
   // ---- Command entry points --------------------------------------------
@@ -98,7 +105,7 @@ export class TtsController {
     this.playToken++;
     this.audio.pause();
     speechSynthesis.cancel();
-    this.prefetch = null;
+    this.buffer.clear();
     this.state = 'idle';
     this.clearHighlight();
     this.setPlayIcon();
@@ -129,7 +136,7 @@ export class TtsController {
     const v = Math.min(2, Math.max(0.5, Math.round((settings.get<number>('tts.speed') + d) * 10) / 10));
     await settings.set('tts.speed', v);
     this.audio.playbackRate = v / this.clipSpeed; // immediate effect for the Kokoro clip in flight
-    this.prefetch = null; // the queued clip was synthesised at the old speed
+    this.buffer.clear(); // queued clips were synthesised at the old speed
     this.updateStatus();
   }
 
@@ -207,83 +214,117 @@ export class TtsController {
     return KOKORO_VOICES.some(([id]) => id === v) ? v : 'af_bella';
   }
 
-  /** Synthesise a sentence (reusing the prefetched clip when it matches). */
+  private bufferKey(text: string): string {
+    return `${this.kokoroVoice()}|${settings.get<number>('tts.speed')}|${text}`;
+  }
+
+  /** Synthesise a sentence, reusing a clip from the look-ahead buffer if ready. */
   private synth(text: string): Promise<Blob> {
-    const voice = this.kokoroVoice();
-    const speed = settings.get<number>('tts.speed');
-    const key = `${voice}|${speed}|${text}`;
-    if (this.prefetch?.key === key) {
-      const { blob } = this.prefetch;
-      this.prefetch = null;
-      return blob;
+    const key = this.bufferKey(text);
+    const ready = this.buffer.get(key);
+    if (ready) {
+      this.buffer.delete(key);
+      return ready;
     }
-    return this.generateAudio(text, voice, speed);
+    return this.generateAudio(text, this.kokoroVoice(), settings.get<number>('tts.speed'));
+  }
+
+  /** How many sentences to prepare ahead (Settings → Read-aloud buffer). */
+  private lookahead(): number {
+    const v = settings.get<string>('tts.lookahead');
+    return v === 'off' ? 0 : Math.max(0, Math.min(8, Number(v) || 2));
+  }
+
+  /**
+   * Keep the next N sentences synthesised ahead of playback, one at a time
+   * (never competing with the clip being made now). Stops when playback is
+   * superseded (seek / stop) or the buffer is full.
+   */
+  private fillRunning = false;
+  private async fillBuffer(fromIndex: number, token: number): Promise<void> {
+    if (this.fillRunning) return;
+    this.fillRunning = true;
+    try {
+      const n = this.lookahead();
+      for (let i = fromIndex + 1; i <= fromIndex + n && token === this.playToken && this.kokoro; i++) {
+        await this.ensureIndex(i);
+        const s = this.sentences[i];
+        if (!s) break;
+        const key = this.bufferKey(s.text);
+        if (this.buffer.has(key)) continue;
+        const p = this.generateAudio(s.text, this.kokoroVoice(), settings.get<number>('tts.speed'));
+        p.catch(() => this.buffer.delete(key)); // a failed clip is just made on demand later
+        this.buffer.set(key, p);
+        // Bound memory: drop the oldest entries beyond a small cap.
+        while (this.buffer.size > n + 2) this.buffer.delete(this.buffer.keys().next().value as string);
+        await p.catch(() => {});
+      }
+    } finally {
+      this.fillRunning = false;
+    }
   }
 
   /**
    * Synthesise `text` to a WAV blob, robustly:
    *  - long sentences are split at clause boundaries (≤ ~220 chars per call)
    *    and the audio concatenated, which keeps GPU memory per call small;
-   *  - if WebGPU runs out of memory / its device errors (seen as
-   *    VK_ERROR_OUT_OF_DEVICE_MEMORY + cascading "Invalid Buffer" validation
-   *    errors) or it returns NaN/silent audio, the model is reloaded on the
-   *    CPU (WASM) backend, that choice is remembered, and the text is retried.
+   *  - if the GPU runs out of memory / its device errors (seen as
+   *    VK_ERROR_OUT_OF_DEVICE_MEMORY + cascading "Invalid Buffer" errors) or
+   *    it returns NaN/silent audio, the model is reloaded on the CPU and the
+   *    text is retried.
    */
   private async generateAudio(text: string, voice: string, speed: number): Promise<Blob> {
     const kokoro = this.kokoro;
+    if (!kokoro) throw new Error('voice model not loaded');
     try {
       const parts: Float32Array[] = [];
       let rate = 24000;
       for (const chunk of chunkText(text, 220)) {
-        const raw = await kokoro.generate(chunk, { voice, speed });
-        const data: Float32Array = raw.audio ?? raw.data;
-        rate = raw.sampling_rate ?? rate;
-        if (this.gpuFailed || !audioLooksValid(data)) throw new Error('WebGPU produced invalid audio');
-        parts.push(data);
+        const out = await kokoro.generate(chunk, { voice, speed });
+        rate = out.rate;
+        if (out.gpuError || !audioLooksValid(out.audio)) throw new Error('GPU produced invalid audio');
+        parts.push(out.audio);
       }
       return new Blob([encodeWav(concatAudio(parts), rate)], { type: 'audio/wav' });
     } catch (err) {
-      if (this.kokoroDevice !== 'webgpu') throw err;
-      console.warn('Kokoro on WebGPU failed; switching to CPU (WASM)', err);
-      await this.fallBackToWasm();
+      if (kokoro.device !== 'webgpu') throw err;
+      console.warn('Kokoro on GPU failed; switching to CPU', err);
+      await this.fallBackToCpu();
       if (!this.kokoro) throw err;
       return this.generateAudio(text, voice, speed);
     }
   }
 
-  private gpuFailed = false;
-  private kokoroDevice: 'webgpu' | 'wasm' | null = null;
   private fallingBack: Promise<void> | null = null;
 
-  /** Drop the WebGPU model and load the WASM one (once, even if called concurrently). */
-  private fallBackToWasm(): Promise<void> {
+  /** Drop the GPU model (frees its memory) and load the CPU one — once. */
+  private fallBackToCpu(): Promise<void> {
     if (this.fallingBack) return this.fallingBack;
     this.fallingBack = (async () => {
-      this.prefetch = null;
-      this.kokoro = null;
-      this.kokoroLoading = null;
-      // Remember it: this GPU can't hold the model, so don't try again next time.
-      await settings.set('tts.preferWebGPU', false);
-      this.toast('Graphics memory too low for the neural voice — switched to CPU');
+      this.forceCpu = true;
+      this.resetModel();
+      // On "Auto", remember it: this GPU can't hold the model.
+      if (settings.get<string>('tts.device') === 'auto') await settings.set('tts.preferWebGPU', false);
+      this.toast('Graphics memory too low for the neural voice — using CPU (change in Settings)');
       await this.ensureKokoro();
     })().finally(() => { this.fallingBack = null; });
     return this.fallingBack;
+  }
+
+  /** Unload the model (terminates its worker) and forget queued clips. */
+  private resetModel(): void {
+    this.kokoro?.dispose();
+    this.kokoro = null;
+    this.kokoroLoading = null;
+    this.buffer.clear();
   }
 
   private async speakKokoro(s: Sentence, token: number, index: number): Promise<void> {
     const speed = settings.get<number>('tts.speed');
     const blob = await this.synth(s.text);
     if (token !== this.playToken) throw new Error('cancelled');
-    // Start generating the next sentence while this one plays.
-    void this.ensureIndex(index + 1).then(() => {
-      const next = this.sentences[index + 1];
-      if (!next || token !== this.playToken || !this.kokoro) return;
-      const voice = this.kokoroVoice();
-      const sp = settings.get<number>('tts.speed');
-      const p = this.generateAudio(next.text, voice, sp);
-      p.catch(() => {}); // a failed prefetch just falls back to on-demand synthesis
-      this.prefetch = { key: `${voice}|${sp}|${next.text}`, blob: p };
-    });
+    // Prepare the next sentences while this one plays.
+    void this.fillBuffer(index, token);
     const url = URL.createObjectURL(blob);
     return new Promise<void>((resolve, reject) => {
       this.audio.src = url;
@@ -323,82 +364,45 @@ export class TtsController {
 
   // ---- Kokoro loading ---------------------------------------------------
 
-  /** Flag WebGPU device errors (OOM, lost device) so the next clip falls back. */
-  private async watchGpu(): Promise<void> {
-    try {
-      const tf: any = await import('@huggingface/transformers');
-      const device: any = tf?.env?.backends?.onnx?.webgpu?.device;
-      if (!device) return;
-      device.addEventListener('uncapturederror', () => { this.gpuFailed = true; });
-      void device.lost.then(() => { this.gpuFailed = true; });
-    } catch { /* best-effort */ }
+  /** Which devices to try, in order, from Settings → Voice runs on. */
+  private devicePlan(): KokoroDevice[] {
+    const pref = settings.get<string>('tts.device');
+    const hasGpu = 'gpu' in navigator;
+    if (this.forceCpu || pref === 'cpu' || !hasGpu) return ['wasm'];
+    if (pref === 'gpu') return ['webgpu', 'wasm'];
+    // auto: GPU unless it failed before on this machine.
+    return settings.get<boolean>('tts.preferWebGPU') ? ['webgpu', 'wasm'] : ['wasm'];
   }
 
-  private ensureKokoro(): Promise<any> {
+  private ensureKokoro(): Promise<KokoroClient | null> {
     if (this.kokoro) return Promise.resolve(this.kokoro);
     if (this.kokoroLoading) return this.kokoroLoading;
-    this.state = this.state === 'idle' ? 'loading' : this.state;
     this.kokoroLoading = (async () => {
-      try {
-        const { KokoroTTS } = await import('kokoro-js');
-        // MV3 forbids blob: workers, so run onnxruntime on the main thread
-        // (no proxy worker, single-threaded WASM). WebGPU is unaffected.
+      let lastErr: unknown;
+      for (const device of this.devicePlan()) {
+        let client: KokoroClient | null = null;
         try {
-          const tf: any = await import('@huggingface/transformers');
-          const wasm = tf?.env?.backends?.onnx?.wasm;
-          if (wasm) {
-            wasm.numThreads = 1;
-            wasm.proxy = false;
-            // transformers.js sets wasmPaths to a jsDelivr URL on import; ORT
-            // would then import() its .mjs glue from the CDN, which the MV3 CSP
-            // blocks — the reason Kokoro never ran. Supplying only the .wasm
-            // URL makes ORT use the glue embedded in its bundle + our local file.
-            wasm.wasmPaths = { wasm: ortWasmUrl };
-          }
+          client = new KokoroClient(device);
+          this.setStatus(`Loading voice… (${device === 'webgpu' ? 'GPU' : 'CPU'})`);
+          await client.load(device === 'webgpu' ? 'fp32' : 'q8', (loaded, total) =>
+            this.setStatus(`Downloading voice ${Math.round((loaded / total) * 100)}%`),
+          );
+          this.kokoro = client;
+          this.toast(`Neural voice ready (${device === 'webgpu' ? 'GPU' : 'CPU'})`);
+          this.populateVoices();
+          this.updateStatus();
+          return client;
         } catch (err) {
-          console.warn('Could not configure ONNX Runtime WASM paths', err);
+          lastErr = err;
+          client?.dispose();
+          console.warn(`Kokoro failed to load on ${device}, trying next`, err);
         }
-
-        // Try the preferred device first, then fall back a level at a time.
-        // WebGPU frequently downloads the weights fine but then fails to build
-        // the inference session (no adapter in the extension context), which
-        // previously dropped straight to the browser voice — the reported bug.
-        const wantGpu = settings.get<boolean>('tts.preferWebGPU') && 'gpu' in navigator;
-        const attempts: Array<{ device: 'webgpu' | 'wasm'; dtype: 'fp32' | 'q8' }> = wantGpu
-          ? [{ device: 'webgpu', dtype: 'fp32' }, { device: 'wasm', dtype: 'q8' }]
-          : [{ device: 'wasm', dtype: 'q8' }];
-
-        let lastErr: unknown;
-        for (const { device, dtype } of attempts) {
-          try {
-            this.setStatus(`Loading voice model… (${device})`);
-            this.kokoro = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
-              dtype,
-              device,
-              progress_callback: (p: any) => {
-                if (p?.status === 'progress' && p.total) this.setStatus(`Downloading model ${Math.round((p.loaded / p.total) * 100)}%`);
-              },
-            });
-            this.kokoroDevice = device;
-            this.gpuFailed = false;
-            if (device === 'webgpu') this.watchGpu();
-            this.toast(`Neural voice ready (${device === 'webgpu' ? 'GPU' : 'CPU'})`);
-            this.populateVoices();
-            this.updateStatus();
-            return this.kokoro;
-          } catch (err) {
-            lastErr = err;
-            console.warn(`Kokoro load failed on ${device}, trying next`, err);
-          }
-        }
-        throw lastErr ?? new Error('Kokoro unavailable');
-      } catch (err) {
-        console.warn('Kokoro load failed, using native voice', err);
-        this.toast('Using browser voice (neural model unavailable — see console)');
-        this.setStatus('Browser voice');
-        this.kokoroLoading = null;
-        return null;
       }
+      console.warn('Kokoro unavailable, using the browser voice', lastErr);
+      this.toast('Using browser voice (neural voice unavailable — see console)');
+      this.setStatus('Browser voice');
+      this.kokoroLoading = null;
+      return null;
     })();
     return this.kokoroLoading;
   }
@@ -419,7 +423,11 @@ export class TtsController {
     const skip = settings.get<boolean>('tts.skipNonProse');
     const geom = await this.pdf.getPageTextItems(page);
     const regions = skip ? await this.pdf.getImageRegions(page).catch(() => []) : [];
-    const { text, map } = buildReadingText(geom, regions, skip);
+    let reading = buildReadingText(geom, regions, skip);
+    // Clean mode rewrites symbols/abbreviations and drops citations, URLs,
+    // inline maths… before splitting, keeping the highlight map intact.
+    if (settings.get<string>('tts.readingMode') !== 'verbatim') reading = cleanForSpeech(reading);
+    const { text, map } = reading;
     for (const [rs, re] of splitSentences(text)) {
       // Trim without changing lengths inside the sentence (keeps `map` exact).
       let a = rs;

@@ -5,7 +5,7 @@
  *  - Load/persist AppSettings to chrome.storage (local by default; sync optional).
  *  - Deep-merge stored data over DEFAULT_SETTINGS so new fields back-fill on upgrade.
  *  - Run schema migrations when SCHEMA_VERSION bumps.
- *  - Notify subscribers (toolbar, viewer, offscreen, options page) on any change,
+ *  - Notify subscribers (toolbar, viewer, options page) on any change,
  *    including cross-context changes via chrome.storage.onChanged.
  *  - Provide typed dot-path get/set, reset, and JSON import/export.
  *

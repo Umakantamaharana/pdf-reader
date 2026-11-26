@@ -30,6 +30,9 @@ export interface ColorPreset {
   contrast?: number;
 }
 
+/** Font families offered for text boxes / notes (all local, no web fonts). */
+export type FontFamily = 'sans' | 'serif' | 'mono' | 'hand';
+
 /** Annotation colour per tool family (see AppSettings.annotation.colors). */
 export interface ToolColors {
   highlight: string;
@@ -99,6 +102,8 @@ export interface AppSettings {
      * user sees on screen in that theme. Supersedes highlight/pen/shapeColor.
      */
     colors: { light: ToolColors; dark: ToolColors };
+    /** Default font for new text boxes and sticky notes. */
+    textStyle: { family: FontFamily; size: number };
     autosave: boolean;
     middleClickEraser: {
       enabled: boolean;
@@ -124,6 +129,12 @@ export interface AppSettings {
     /** Read like a person: skip chart/axis labels, tables of numbers, running
      *  headers/footers, page numbers and tiny print. */
     skipNonProse: boolean;
+    /** Where the neural voice runs. 'auto' = GPU, falling back to CPU if it fails. */
+    device: 'auto' | 'gpu' | 'cpu';
+    /** 'clean' reads symbols/abbreviations as words and drops citations, URLs, maths. */
+    readingMode: 'clean' | 'verbatim';
+    /** Sentences to synthesise ahead of playback ('off' or a count). */
+    lookahead: 'off' | '1' | '2' | '3' | '5';
   };
 
   ui: {
@@ -256,6 +267,8 @@ export const COMMANDS: Command[] = [
   { id: 'annot.clearAll', title: 'Erase All Annotations', category: 'Annotation', defaultKeys: 'ctrl+shift+del' },
   { id: 'annot.clearPage', title: 'Erase Annotations on This Page', category: 'Annotation', defaultKeys: 'shift+del' },
   { id: 'annot.clearView', title: 'Erase Annotations in View', category: 'Annotation', defaultKeys: '' },
+  { id: 'nav.back', title: 'Back (after following a link)', category: 'Navigation', defaultKeys: 'alt+left' },
+  { id: 'nav.forward', title: 'Forward', category: 'Navigation', defaultKeys: 'alt+right' },
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -294,6 +307,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
       light: { highlight: '#ffe066', mark: '#000000', pen: '#000000', shape: '#000000', text: '#000000', note: '#ffe066' },
       dark: { highlight: '#ffe066', mark: '#ffffff', pen: '#4ade80', shape: '#ffffff', text: '#ffffff', note: '#ffe066' },
     },
+    textStyle: { family: 'sans', size: 14 },
     autosave: true,
     middleClickEraser: { enabled: true, global: false, radius: 12, eraseWholeStroke: true },
   },
@@ -310,6 +324,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     sentencePauseMs: 120,
     preferWebGPU: true,
     skipNonProse: true,
+    device: 'auto',
+    readingMode: 'clean',
+    lookahead: '2',
   },
   ui: {
     theme: 'system',

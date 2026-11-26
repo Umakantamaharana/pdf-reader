@@ -17,13 +17,12 @@ export default defineConfig({
     },
   },
   build: {
-    target: 'esnext', // top-level await + WASM in the viewer/offscreen docs
+    target: 'esnext', // top-level await + WASM in the viewer and the voice worker
     rollupOptions: {
       input: {
         viewer: 'src/viewer/viewer.html',
         settings: 'src/ui/settings.html',
         popup: 'src/ui/popup.html',
-        offscreen: 'src/offscreen/offscreen.html',
       },
     },
   },

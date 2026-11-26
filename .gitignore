@@ -11,3 +11,6 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# release packages (npm run build → zip of dist/)
+*.zip

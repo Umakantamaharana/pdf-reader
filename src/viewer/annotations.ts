@@ -16,6 +16,15 @@
  */
 
 import { dismiss } from '../ui/motion';
+import type { FontFamily } from '../core/schema';
+
+/** CSS stacks for the text-box / note font families (local fonts only). */
+export const FONT_STACKS: Record<FontFamily, string> = {
+  sans: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  serif: 'Georgia, Cambria, "Times New Roman", Times, serif',
+  mono: 'ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "Liberation Mono", monospace',
+  hand: '"Segoe Print", "Bradley Hand", "Comic Sans MS", "Comic Neue", cursive',
+};
 import { PDFViewer } from './pdfViewer';
 import { settings } from '../core/settings';
 
@@ -35,8 +44,8 @@ type Annot =
   | { id: string; page: number; type: 'rectangle'; color: string; width: number; box: Box }
   | { id: string; page: number; type: 'ellipse'; color: string; width: number; box: Box }
   | { id: string; page: number; type: 'arrow'; color: string; width: number; from: Pt; to: Pt }
-  | { id: string; page: number; type: 'note'; color: string; at: Pt; text: string }
-  | { id: string; page: number; type: 'textbox'; color: string; at: Pt; text: string; fontPts: number }
+  | { id: string; page: number; type: 'note'; color: string; at: Pt; text: string; fontPts?: number; fontFamily?: FontFamily }
+  | { id: string; page: number; type: 'textbox'; color: string; at: Pt; text: string; fontPts: number; fontFamily?: FontFamily }
   | { id: string; page: number; type: 'stamp'; box: Box; dataUrl: string };
 
 interface Overlay { rot: HTMLDivElement; hl: HTMLDivElement; svg: SVGSVGElement; dom: HTMLDivElement; pageW: number; pageH: number }
@@ -308,6 +317,7 @@ export class AnnotationManager {
       t.style.top = `${(a.at.y / ov.pageH) * 100}%`;
       t.style.color = this.shown(a.color);
       t.style.fontSize = `calc(var(--scale-factor, 1) * ${a.fontPts}px)`;
+      t.style.fontFamily = FONT_STACKS[a.fontFamily ?? 'sans'];
       t.addEventListener('input', () => { (a as any).text = t.textContent ?? ''; this.scheduleSave(); });
       this.wireTextbox(t, a);
       ov.dom.appendChild(t);
@@ -333,6 +343,7 @@ export class AnnotationManager {
    */
   private wireTextbox(t: HTMLElement, a: Extract<Annot, { type: 'textbox' }>): void {
     t.addEventListener('contextmenu', (e) => e.preventDefault());
+    t.addEventListener('focus', () => this.setActiveText(a));
     t.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') { e.preventDefault(); t.blur(); }
       e.stopPropagation(); // typing must not trigger viewer shortcuts
@@ -477,12 +488,12 @@ export class AnnotationManager {
   private async placeAt(pageNum: number, ov: Overlay, clientX: number, clientY: number): Promise<void> {
     const at = this.clientToPt(ov, pageNum, clientX, clientY);
     if (this.tool === 'note') {
-      const a: Annot = { id: this.newId(), page: pageNum, type: 'note', color: this.stored(settings.get<string>(this.colorPathForTool('note')!)), at, text: '' };
+      const a: Annot = { id: this.newId(), page: pageNum, type: 'note', color: this.stored(settings.get<string>(this.colorPathForTool('note')!)), at, text: '', ...this.defaultTextStyle() };
       await this.add(a);
       const el = this.overlays.get(pageNum)?.dom.querySelector(`[data-id="${a.id}"]`) as HTMLElement | null;
       if (el) this.openNoteEditor(a, el);
     } else if (this.tool === 'textbox') {
-      const a: Annot = { id: this.newId(), page: pageNum, type: 'textbox', color: this.stored(settings.get<string>(this.colorPathForTool('textbox')!)), at, text: '', fontPts: 14 };
+      const a: Annot = { id: this.newId(), page: pageNum, type: 'textbox', color: this.stored(settings.get<string>(this.colorPathForTool('textbox')!)), at, text: '', ...this.defaultTextStyle() };
       // add() re-renders the overlay asynchronously; the old code looked the
       // element up before it existed, so the new box never got focus.
       await this.add(a);
@@ -521,6 +532,9 @@ export class AnnotationManager {
     panel.style.top = `${Math.max(12, rect.top)}px`;
     const ta = document.createElement('textarea');
     ta.value = a.text;
+    ta.style.fontFamily = FONT_STACKS[a.fontFamily ?? 'sans'];
+    ta.style.fontSize = `${a.fontPts ?? 14}px`;
+    this.setActiveText(a);
     ta.placeholder = 'Write a note…';
     ta.addEventListener('input', () => { a.text = ta.value; marker.title = ta.value; this.scheduleSave(); });
     const close = document.createElement('button');
@@ -730,6 +744,63 @@ export class AnnotationManager {
     return this.renderPage(a.page);
   }
 
+  // ---- Text style (text boxes & sticky notes) ---------------------------
+
+  /** The text box / note being edited (or last edited) — font changes apply to it. */
+  private activeText: Extract<Annot, { type: 'textbox' | 'note' }> | null = null;
+  private textStyleListeners = new Set<() => void>();
+
+  onTextStyleChange(fn: () => void): void {
+    this.textStyleListeners.add(fn);
+  }
+
+  private setActiveText(a: Extract<Annot, { type: 'textbox' | 'note' }> | null): void {
+    this.activeText = a;
+    this.textStyleListeners.forEach((fn) => fn());
+  }
+
+  private defaultTextStyle(): { fontPts: number; fontFamily: FontFamily } {
+    const st = settings.get<{ family: FontFamily; size: number }>('annotation.textStyle');
+    return { fontPts: st.size, fontFamily: st.family };
+  }
+
+  /** Style shown in the toolbar: the active text's own style, else the default. */
+  currentTextStyle(): { family: FontFamily; size: number } {
+    const a = this.activeText && this.annots.includes(this.activeText) ? this.activeText : null;
+    const d = settings.get<{ family: FontFamily; size: number }>('annotation.textStyle');
+    return a ? { family: a.fontFamily ?? 'sans', size: a.fontPts ?? 14 } : d;
+  }
+
+  /**
+   * Change font family/size: becomes the default for new text boxes/notes and
+   * is applied live to the one being edited (without stealing its focus).
+   */
+  async setTextStyle(patch: Partial<{ family: FontFamily; size: number }>): Promise<void> {
+    const next = { ...settings.get<{ family: FontFamily; size: number }>('annotation.textStyle'), ...patch };
+    next.size = Math.max(6, Math.min(72, Math.round(next.size)));
+    await settings.set('annotation.textStyle', next);
+    const a = this.activeText && this.annots.includes(this.activeText) ? this.activeText : null;
+    if (a) {
+      if (patch.family) a.fontFamily = next.family;
+      if (patch.size != null) a.fontPts = next.size;
+      if (a.type === 'textbox') {
+        const el = this.overlays.get(a.page)?.dom.querySelector<HTMLElement>(`[data-id="${a.id}"]`);
+        if (el) {
+          el.style.fontFamily = FONT_STACKS[a.fontFamily ?? 'sans'];
+          el.style.fontSize = `calc(var(--scale-factor, 1) * ${a.fontPts}px)`;
+        }
+      } else {
+        const ta = document.querySelector<HTMLTextAreaElement>('.annot-note-editor:not(.is-leaving) textarea');
+        if (ta) {
+          ta.style.fontFamily = FONT_STACKS[a.fontFamily ?? 'sans'];
+          ta.style.fontSize = `${a.fontPts}px`;
+        }
+      }
+      this.scheduleSave();
+    }
+    this.textStyleListeners.forEach((fn) => fn());
+  }
+
   /** Remove every annotation in this PDF as one undoable step. */
   clearAll(): void {
     this.eraseWhere(() => true, 'in this PDF');
@@ -787,6 +858,7 @@ export class AnnotationManager {
 
   /** Drop an annotation without an undo entry (e.g. a text box left empty). */
   private discard(a: Annot): void {
+    if (this.activeText === a) this.setActiveText(null);
     this.annots = this.annots.filter((x) => x !== a);
     this.undoStack = this.undoStack.filter((op) => !(op.kind === 'add' && op.annots.length === 1 && op.annots[0] === a));
     this.scheduleSave();
@@ -874,6 +946,15 @@ export class AnnotationManager {
     const srcBytes = await doc.getData();
     const out = await PDFDocument.load(srcBytes);
     const font = await out.embedFont(StandardFonts.Helvetica);
+    // Same family in the exported PDF (closest of the 14 standard fonts).
+    const fontCache = new Map<FontFamily, Awaited<ReturnType<typeof out.embedFont>>>();
+    const fontFor = async (f: FontFamily = 'sans') => {
+      if (!fontCache.has(f)) {
+        const std = f === 'serif' ? StandardFonts.TimesRoman : f === 'mono' ? StandardFonts.Courier : f === 'hand' ? StandardFonts.HelveticaOblique : StandardFonts.Helvetica;
+        fontCache.set(f, f === 'sans' ? font : await out.embedFont(std));
+      }
+      return fontCache.get(f)!;
+    };
     const pages = out.getPages();
 
     for (const a of this.annots) {
@@ -916,9 +997,12 @@ export class AnnotationManager {
         // as a stray box next to the note text).
         const nr = 7;
         page.drawEllipse({ x: a.at.x + nr, y: flipY(a.at.y + nr), xScale: nr, yScale: nr, color: col(a.color) });
-        if (a.text) page.drawText(a.text, { x: a.at.x + 2 * nr + 5, y: flipY(a.at.y + nr + 3), size: 9, font, color: rgb(0.1, 0.1, 0.1), maxWidth: W - a.at.x - 2 * nr - 9 });
+        if (a.text) {
+          const size = Math.min(a.fontPts ?? 9, 24);
+          page.drawText(a.text, { x: a.at.x + 2 * nr + 5, y: flipY(a.at.y + nr + 3), size, font: await fontFor(a.fontFamily), color: rgb(0.1, 0.1, 0.1), maxWidth: W - a.at.x - 2 * nr - 9 });
+        }
       } else if (a.type === 'textbox') {
-        page.drawText(a.text, { x: a.at.x, y: flipY(a.at.y + a.fontPts), size: a.fontPts, font, color: col(a.color), maxWidth: W - a.at.x });
+        page.drawText(a.text, { x: a.at.x, y: flipY(a.at.y + a.fontPts), size: a.fontPts, font: await fontFor(a.fontFamily), color: col(a.color), maxWidth: W - a.at.x });
       } else if (a.type === 'stamp') {
         const { bytes, mime } = dataUrlToBytes(a.dataUrl);
         const img = mime.includes('png') ? await out.embedPng(bytes) : await out.embedJpg(bytes);

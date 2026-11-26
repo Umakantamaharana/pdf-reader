@@ -1,14 +1,13 @@
 {
   "name": "lumen-pdf",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Keyboard-first PDF reader & annotator (Manifest V3).",
   "scripts": {
     "dev": "vite build --watch --mode development",
     "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint src --ext .ts"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "pdfjs-dist": "^4.7.76",

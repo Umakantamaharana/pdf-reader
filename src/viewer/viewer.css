@@ -154,6 +154,18 @@ body {
 .pdf-content { transform-origin: 0 0; }
 .pdf-content.zooming { will-change: transform; }
 
+/* PDF links: invisible hit boxes over the page (pdfViewer.renderLinks). A
+   soft tint on hover shows they're clickable. Hidden from the pointer while an
+   annotation tool is active so drawing/selecting isn't hijacked. */
+.linkLayer { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.pdf-link {
+  position: absolute; display: block; pointer-events: auto; cursor: pointer;
+  border-radius: 3px; transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+.pdf-link:hover { background: rgba(255, 196, 0, 0.18); box-shadow: inset 0 -2px 0 rgba(255, 170, 0, 0.7); }
+.pdf-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+body.annot-active .linkLayer { display: none; }
+
 /* pdf.js selection guard (viewer/selectionGuard.ts): an invisible block that
    catches the pointer in gaps between spans while selecting, so the selection
    doesn't jump to the rest of the page. */
@@ -291,6 +303,14 @@ body.distraction-free.sidebar-open .pdf-scroll { margin-left: 0; }
   transform-origin: 0% 0%;
 }
 .textLayer span.markedContent { top: 0; height: 0; }
+/* Selection: tint the background only. Chrome's default ::selection paints the
+   text in the system highlight colour, which overrode `color: transparent`
+   and revealed the text layer's fallback font over the PDF glyphs — the
+   "font changes while selecting" effect. The real glyphs stay visible on the
+   canvas underneath the tint. */
+.textLayer ::selection { color: transparent; background: rgba(30, 36, 48, 0.22); }
+body.lumen-dark .textLayer ::selection { background: rgba(255, 255, 255, 0.24); }
+.textLayer br::selection { background: transparent; }
 /* pdf.js sizes the text layer to the UNROTATED page and tags it with
    data-main-rotation; these rules (from pdf.js's viewer CSS) rotate it onto
    the rotated canvas. Without them, text selection, search hits, TTS word
@@ -528,6 +548,22 @@ body.distraction-free .lumen-dock { display: none; }
 .annot-tbtn.active { background: var(--accent); color: var(--accent-ink); }
 .annot-color { width: 30px; height: 30px; padding: 0; border: none; background: none; cursor: pointer; }
 .annot-width { width: 80px; }
+/* Font controls (text box / sticky note tools). */
+.annot-font { display: inline-flex; align-items: center; gap: 6px; }
+.annot-font-family {
+  height: var(--btn-size); background: var(--field-bg); color: var(--lumen-text);
+  border: 1px solid var(--glass-border); border-radius: 9px; padding: 0 6px; font-size: 13px;
+}
+.annot-font-size { display: inline-flex; align-items: center; gap: 2px; }
+.annot-font-size .annot-tbtn { min-width: 28px; height: 28px; }
+.annot-font-size svg { width: 14px; height: 14px; }
+.fs-value {
+  width: 44px; height: 28px; text-align: center; font: inherit; font-size: 13px;
+  font-variant-numeric: tabular-nums; color: var(--lumen-text);
+  background: var(--field-bg); border: 1px solid var(--glass-border); border-radius: 7px;
+  -moz-appearance: textfield;
+}
+.fs-value::-webkit-inner-spin-button, .fs-value::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .annot-close { opacity: 0.75; }
 .annot-close:hover { opacity: 1; }
 .annot-sep { width: 1px; height: 22px; background: var(--hairline); }

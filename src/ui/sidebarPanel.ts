@@ -245,7 +245,7 @@ export class SidebarPanel {
       if (node.bold) link.style.fontWeight = '600';
       if (node.italic) link.style.fontStyle = 'italic';
       link.addEventListener('click', () => {
-        if (node.dest != null) void this.pdf.goToDestination(node.dest);
+        if (node.dest != null) void this.pdf.followLink(node.dest);
         else if (node.url) window.open(node.url, '_blank', 'noopener');
       });
 

@@ -7,8 +7,7 @@
  *    redirect target needs the real extension id (chrome.runtime.getURL),
  *    which a static rule file can't express.
  *  - Provide a context-menu + command to open the current tab's PDF in Lumen.
- *  - Lazily create/destroy the Offscreen Document that will host TTS inference
- *    in a later step (stubbed here so the lifecycle is in place).
+ *  - Open URLs in the reader on request from the popup.
  */
 
 const VIEWER_PATH = 'src/viewer/viewer.html';
@@ -77,18 +76,3 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   return true;
 });
-
-// ---- Offscreen TTS lifecycle (wired fully in the TTS step) ----------------
-
-const OFFSCREEN_PATH = 'src/offscreen/offscreen.html';
-
-export async function ensureOffscreen(): Promise<void> {
-  // @ts-expect-error getContexts typing varies by @types/chrome version
-  const existing: unknown[] = (await chrome.runtime.getContexts?.({ contextTypes: ['OFFSCREEN_DOCUMENT'] })) ?? [];
-  if (existing.length) return;
-  await chrome.offscreen.createDocument({
-    url: OFFSCREEN_PATH,
-    reasons: ['AUDIO_PLAYBACK' as chrome.offscreen.Reason],
-    justification: 'Run on-device neural TTS and play synthesized audio.',
-  });
-}

@@ -14,6 +14,13 @@ import { icon } from './icons';
 import { dock } from './dock';
 import { dismiss } from './motion';
 import { ColorPicker, HIGHLIGHTERS, INK_DARK, INK_LIGHT } from './colorPicker';
+import { FONT_STACKS } from '../viewer/annotations';
+import type { FontFamily } from '../core/schema';
+
+/** Size step: 1 pt for small text, 2 pt above 20, 4 pt above 40. */
+function stepFor(size: number): number {
+  return size >= 40 ? 4 : size >= 20 ? 2 : 1;
+}
 
 function isDark(): boolean {
   const dm = settings.get<any>('darkMode');
@@ -43,6 +50,7 @@ export class AnnotationBar {
   private buttons = new Map<AnnotTool, HTMLButtonElement>();
   private color: ColorPicker;
   private width: HTMLInputElement;
+  private fontBox: HTMLDivElement;
 
   constructor(registry: CommandRegistry, annot: AnnotationManager) {
     this.registry = registry;
@@ -92,6 +100,33 @@ export class AnnotationBar {
     this.width.value = String(settings.get<number>('annotation.penWidth'));
     this.width.addEventListener('input', () => void settings.set('annotation.penWidth', Number(this.width.value)));
 
+    // Font controls for text boxes & sticky notes (shown instead of stroke width).
+    this.fontBox = document.createElement('div');
+    this.fontBox.className = 'annot-font';
+    this.fontBox.innerHTML = `
+      <select class="annot-font-family" title="Font" aria-label="Font">
+        <option value="sans" style="font-family:${FONT_STACKS.sans}">Sans</option>
+        <option value="serif" style="font-family:${FONT_STACKS.serif}">Serif</option>
+        <option value="mono" style="font-family:${FONT_STACKS.mono}">Mono</option>
+        <option value="hand" style="font-family:${FONT_STACKS.hand}">Handwriting</option>
+      </select>
+      <div class="annot-font-size" role="group" aria-label="Font size">
+        <button class="annot-tbtn fs-down" title="Smaller text" aria-label="Smaller text">${icon('minus')}</button>
+        <input class="fs-value" type="number" min="6" max="72" step="1" title="Font size (pt)" aria-label="Font size in points" />
+        <button class="annot-tbtn fs-up" title="Bigger text" aria-label="Bigger text">${icon('plus')}</button>
+      </div>`;
+    const fam = this.fontBox.querySelector<HTMLSelectElement>('.annot-font-family')!;
+    const size = this.fontBox.querySelector<HTMLInputElement>('.fs-value')!;
+    fam.addEventListener('change', () => void this.annot.setTextStyle({ family: fam.value as FontFamily }));
+    size.addEventListener('change', () => void this.annot.setTextStyle({ size: Number(size.value) }));
+    // Keep the text box focused while stepping the size (mousedown would blur it).
+    for (const [sel, d] of [['.fs-down', -1], ['.fs-up', 1]] as const) {
+      const b = this.fontBox.querySelector<HTMLButtonElement>(sel)!;
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+      b.addEventListener('click', () => void this.annot.setTextStyle({ size: this.annot.currentTextStyle().size + d * stepFor(this.annot.currentTextStyle().size) }));
+    }
+    this.annot.onTextStyleChange(() => this.syncInputs());
+
     const sep = () => { const s = document.createElement('span'); s.className = 'annot-sep'; return s; };
     const actions = document.createElement('div');
     actions.className = 'annot-bar-actions';
@@ -127,7 +162,7 @@ export class AnnotationBar {
     trash.addEventListener('click', () => this.toggleEraseMenu(trash));
     actions.insertBefore(trash, actions.lastElementChild); // before Export
 
-    this.el.append(tools, sep(), this.color.el, this.width, sep(), actions, sep(), close);
+    this.el.append(tools, sep(), this.color.el, this.width, this.fontBox, sep(), actions, sep(), close);
     dock().register('annot', this.el);
 
     this.annot.onToolChange((tool, active) => this.refresh(tool, active));
@@ -191,6 +226,18 @@ export class AnnotationBar {
 
   private syncInputs(): void {
     this.color.refresh();
+    // Show the control that fits the tool: font for text tools, width for strokes.
+    const tool = this.annot.getTool();
+    const isText = tool === 'textbox' || tool === 'note';
+    const isStroke = tool === 'pen' || tool === 'rectangle' || tool === 'ellipse' || tool === 'arrow';
+    this.fontBox.hidden = !isText;
+    this.width.hidden = !isStroke;
+    const st = this.annot.currentTextStyle();
+    const fam = this.fontBox.querySelector<HTMLSelectElement>('.annot-font-family')!;
+    const size = this.fontBox.querySelector<HTMLInputElement>('.fs-value')!;
+    fam.value = st.family;
+    fam.style.fontFamily = FONT_STACKS[st.family];
+    if (document.activeElement !== size) size.value = String(st.size);
     this.width.value = String(settings.get<number>('annotation.penWidth'));
   }
 }
