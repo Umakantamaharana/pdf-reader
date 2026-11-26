@@ -6,7 +6,7 @@ it before making changes. For status and the release checklist see
 
 ## What this is
 
-**Lumen PDF** is a Manifest V3 Chrome extension: a keyboard-first PDF reader and
+**sobelpdf** is a Manifest V3 Chrome extension: a keyboard-first PDF reader and
 annotator.
 
 - **Stack:** TypeScript + Vite + `@crxjs/vite-plugin`. No framework; plain DOM and

@@ -1,4 +1,4 @@
-# Lumen PDF — Keyboard-First PDF Reader & Annotator
+# sobelpdf — Keyboard-First PDF Reader & Annotator
 
 A fast, private PDF reader and annotator for Chrome (Manifest V3). Everything runs on
 your computer: rendering, annotations, dark mode and even the neural read-aloud voice.
@@ -30,8 +30,8 @@ via `kokoro-js` (on-device text-to-speech).
 
 ### Reading
 
-- **Opens PDFs automatically.** Any `.pdf` link or tab opens in Lumen. You can also
-  right-click → *Open in Lumen PDF*, use the toolbar popup (paste a URL), press
+- **Opens PDFs automatically.** Any `.pdf` link or tab opens in sobelpdf. You can also
+  right-click → *Open in sobelpdf*, use the toolbar popup (paste a URL), press
   `Alt+Shift+P` on a PDF tab, or drag a file onto the empty reader. Local files work
   once *Allow access to file URLs* is turned on for the extension.
 - **Three layouts:** continuous scroll, single page, and two-page spread (`l` cycles).
@@ -195,7 +195,7 @@ After rebuilding, click **reload ↻** on the extension card.
 
 ```bash
 npm run build
-cd dist && zip -r ../lumen-pdf-v$(node -p "require('../package.json').version").zip . && cd ..
+cd dist && zip -r ../sobelpdf-v$(node -p "require('../package.json').version").zip . && cd ..
 ```
 
 Upload the zip in the Chrome Web Store Developer Dashboard. The version in
@@ -225,11 +225,11 @@ choose. You can export and import them as JSON.
 
 ## Privacy
 
-- Lumen reads **only the PDF you open**, inside your browser. Page content is never
+- sobelpdf reads **only the PDF you open**, inside your browser. Page content is never
   uploaded anywhere.
 - Settings and annotations are kept in `chrome.storage`, on this device by default or
   synced through your own Chrome account if you enable sync.
-- The **only network request** Lumen makes on its own is a one-time download of the
+- The **only network request** sobelpdf makes on its own is a one-time download of the
   open-source Kokoro voice model (about 80–330 MB) from Hugging Face. It happens only
   when you first use the neural voice, and the model is cached afterwards. It is a data
   file; no code is downloaded. Everything else is bundled with the extension.

@@ -6,7 +6,7 @@
  *    .pdf navigations into our viewer. This is done at runtime because the
  *    redirect target needs the real extension id (chrome.runtime.getURL),
  *    which a static rule file can't express.
- *  - Provide a context-menu + command to open the current tab's PDF in Lumen.
+ *  - Provide a context-menu + command to open the current tab's PDF in sobelpdf.
  *  - Open URLs in the reader on request from the popup.
  */
 
@@ -48,7 +48,7 @@ chrome.runtime.onInstalled.addListener(() => {
   void installPdfRedirectRule();
   chrome.contextMenus.create({
     id: 'open-in-lumen',
-    title: 'Open in Lumen PDF',
+    title: 'Open in sobelpdf',
     contexts: ['link', 'page'],
     targetUrlPatterns: ['*://*/*.pdf*'],
     documentUrlPatterns: ['*://*/*'],

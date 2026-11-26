@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Lumen PDF — Keyboard-First Reader & Annotator",
+  "name": "sobelpdf",
   "version": "1.0.0",
   "description": "Keyboard-first PDF reader with smart dark mode, annotations, a middle-click eraser, and offline AI text-to-speech.",
   "minimum_chrome_version": "116",
@@ -12,7 +12,7 @@
   },
 
   "action": {
-    "default_title": "Lumen PDF",
+    "default_title": "sobelpdf",
     "default_popup": "src/ui/popup.html"
   },
 
@@ -53,11 +53,11 @@
   "commands": {
     "_execute_action": {
       "suggested_key": { "default": "Alt+P" },
-      "description": "Open the Lumen PDF popup"
+      "description": "Open the sobelpdf popup"
     },
     "open-current-in-reader": {
       "suggested_key": { "default": "Alt+Shift+P" },
-      "description": "Open the current PDF in Lumen reader"
+      "description": "Open the current PDF in sobelpdf"
     }
   }
 }

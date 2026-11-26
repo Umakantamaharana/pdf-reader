@@ -1,13 +1,13 @@
-# Privacy Policy — Lumen PDF
+# Privacy Policy — sobelpdf
 
 _Last updated: 27 November 2026_
 
-Lumen PDF ("the extension") is a PDF reader and annotator for Google Chrome, developed
+sobelpdf ("the extension") is a PDF reader and annotator for Google Chrome, developed
 by Umakanta Maharana. This policy explains what data the extension handles and how.
 
 ## Summary
 
-Lumen PDF processes your documents **only on your own device**. It does not collect,
+sobelpdf processes your documents **only on your own device**. It does not collect,
 sell, share or transmit your personal data or the content of your documents. It has
 no analytics, no tracking and no accounts.
 
@@ -53,8 +53,8 @@ browser would fetch them without the extension.
 
 - **storage / unlimitedStorage:** saves your settings and annotations, and caches the
   voice model, on your device.
-- **declarativeNetRequest:** opens `.pdf` links in the Lumen viewer.
-- **contextMenus:** adds "Open in Lumen PDF" to the right-click menu.
+- **declarativeNetRequest:** opens `.pdf` links in the sobelpdf viewer.
+- **contextMenus:** adds "Open in sobelpdf" to the right-click menu.
 - **Host access to all sites:** needed to open and read PDFs from whichever website you
   view them on.
 

@@ -1,6 +1,6 @@
 # HANDOFF.md
 
-Current status, recent work, open issues and release steps for **Lumen PDF**.
+Current status, recent work, open issues and release steps for **sobelpdf**.
 Last updated **27 November 2026** · version **1.0.0**.
 
 ---
@@ -113,7 +113,7 @@ Last updated **27 November 2026** · version **1.0.0**.
 
 ## Smoke test (manual, before every release)
 
-1. Open a PDF link: it opens in Lumen and the toolbar is visible at the bottom.
+1. Open a PDF link: it opens in sobelpdf and the toolbar is visible at the bottom.
 2. Scroll with the arrows and Space (smooth); zoom with Ctrl+wheel and the buttons
    (smooth, then crisp).
 3. Toggle the sidebar (`s`): it slides and the pages glide. Open the Contents tab and
@@ -138,7 +138,7 @@ Last updated **27 November 2026** · version **1.0.0**.
 # bump "version" in BOTH manifest.json and package.json for every new upload
 npm install --onnxruntime-node-install-cuda=skip
 npm run build
-cd dist && zip -r ../lumen-pdf-v1.0.0.zip . && cd ..
+cd dist && zip -r ../sobelpdf-v1.0.0.zip . && cd ..
 ```
 
 Load `dist/` unpacked once more and run the smoke test before uploading.
@@ -154,7 +154,7 @@ Load `dist/` unpacked once more and run the smoke test before uploading.
 
 **Upload**
 
-1. Click **New item** and upload `lumen-pdf-v1.0.0.zip`.
+1. Click **New item** and upload `sobelpdf-v1.0.0.zip`.
 
 **Store listing**
 
@@ -183,7 +183,7 @@ Load `dist/` unpacked once more and run the smoke test before uploading.
 | `storage` | Saves the user's settings and annotations locally. |
 | `unlimitedStorage` | Annotations can include images (signatures/stamps), and the optional on-device voice model (up to ~330 MB) is cached for offline use. |
 | `declarativeNetRequest` | Opens links to `.pdf` files in the extension's PDF viewer instead of the default viewer. |
-| `contextMenus` | Adds "Open in Lumen PDF" to the right-click menu for PDF links. |
+| `contextMenus` | Adds "Open in sobelpdf" to the right-click menu for PDF links. |
 | Host permission `<all_urls>` | The reader must fetch and display PDF files from whichever website the user opens them on. Content is processed locally and never transmitted. |
 
 **Distribution**
