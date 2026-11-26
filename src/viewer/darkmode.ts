@@ -152,12 +152,6 @@ export class DarkModeEngine {
     await settings.set('darkMode.enabled', !settings.get<boolean>('darkMode.enabled'));
   }
 
-  async cyclePreset(): Promise<void> {
-    const dm = settings.get<AppSettings['darkMode']>('darkMode');
-    const idx = dm.presets.findIndex((p) => p.id === dm.activePresetId);
-    await applyPreset(dm.presets[(idx + 1) % dm.presets.length]);
-  }
-
   async nudgeBrightness(delta: number): Promise<void> {
     const v = clamp(settings.get<number>('darkMode.brightness') + delta, 0.5, 1.5);
     await settings.set('darkMode.brightness', round2(v));

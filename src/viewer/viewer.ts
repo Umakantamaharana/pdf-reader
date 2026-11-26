@@ -11,6 +11,7 @@ import { settings } from '../core/settings';
 import { commands } from '../core/commands';
 import { ShortcutManager } from '../core/shortcuts';
 import { PDFViewer } from './pdfViewer';
+import type { FitMode } from '../core/schema';
 import { DarkModeEngine } from './darkmode';
 import { SearchController } from './search';
 import { AnnotationManager } from './annotations';
@@ -123,8 +124,7 @@ async function main() {
     return;
   }
   try {
-    await pdf.load(file);
-    await annot.load();
+    await openDocument(pdf, annot, file);
   } catch (err) {
     console.error(err);
     showError(String(err));
@@ -176,7 +176,6 @@ function registerCommands(
     // Dark mode
     'dark.toggle': () => dark.toggle(),
     'dark.panel': () => display.toggle(),
-    'dark.cyclePreset': () => dark.cyclePreset(),
     'dark.brightnessUp': () => dark.nudgeBrightness(0.1),
     'dark.brightnessDown': () => dark.nudgeBrightness(-0.1),
 
@@ -231,15 +230,7 @@ function registerCommands(
       else if (top === 'annot' && annot.isActive()) annot.toggleMode();
     },
 
-    // Later-step placeholders so bindings resolve without throwing.
-    ...stubbed(['app.bookmark']),
   });
-}
-
-function stubbed(ids: string[]): Record<string, () => void> {
-  const out: Record<string, () => void> = {};
-  for (const id of ids) out[id] = () => toast('Bookmarks are coming in a future update');
-  return out;
 }
 
 async function toggleSetting(path: string) {
@@ -263,15 +254,46 @@ function resolveFileParam(): string | null {
   }
 }
 
+/** Per-document view state (page + zoom), restored on reopen when enabled. */
+const viewKey = (fp: string) => `sobelpdf.view.${fp}`;
+let viewSaver: (() => void) | null = null;
+
+async function openDocument(pdf: PDFViewer, annot: AnnotationManager, url: string): Promise<void> {
+  await pdf.load(url, async (fp) => {
+    const saved = (await chrome.storage.local.get(viewKey(fp)))[viewKey(fp)] as
+      | { page?: number; fit?: FitMode; scale?: number }
+      | undefined;
+    if (!saved) return;
+    if (settings.get<boolean>('general.rememberLastPage') && saved.page) pdf.state.page = saved.page;
+    if (settings.get<boolean>('general.restoreZoom') && saved.fit) {
+      pdf.state.fit = saved.fit;
+      if (saved.fit === 'actual' && saved.scale) pdf.state.scale = saved.scale;
+    }
+  });
+  await annot.load();
+
+  // Remember where the reader is (debounced) for next time.
+  if (!viewSaver) {
+    let t: number | undefined;
+    viewSaver = () => {
+      clearTimeout(t);
+      t = window.setTimeout(() => {
+        if (!pdf.getDocument()) return;
+        const { page, fit, scale } = pdf.state;
+        void chrome.storage.local.set({ [viewKey(pdf.fingerprint())]: { page, fit, scale } });
+      }, 800);
+    };
+    pdf.onChange(viewSaver);
+  }
+}
+
 function showDropZone(pdf: PDFViewer, annot: AnnotationManager) {
   const dz = document.getElementById('dropzone')!;
   dz.hidden = false;
   const onFile = (file: File) => {
     const url = URL.createObjectURL(file);
     dz.hidden = true;
-    pdf
-      .load(url)
-      .then(() => annot.load())
+    openDocument(pdf, annot, url)
       .catch((err) => {
         console.error(err);
         dz.hidden = false;

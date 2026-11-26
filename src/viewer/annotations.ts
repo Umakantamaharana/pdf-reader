@@ -18,6 +18,9 @@
 import { dismiss } from '../ui/motion';
 import type { FontFamily } from '../core/schema';
 
+/** Version of the saved annotation format (bump + migrate in load() on change). */
+const ANNOT_FORMAT_VERSION = 1;
+
 /** CSS stacks for the text-box / note font families (local fonts only). */
 export const FONT_STACKS: Record<FontFamily, string> = {
   sans: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
@@ -119,7 +122,8 @@ export class AnnotationManager {
   async load(): Promise<void> {
     const key = this.storageKey();
     const data = await new Promise<any>((res) => chrome.storage.local.get(key, (r) => res(r?.[key])));
-    this.annots = Array.isArray(data) ? data : [];
+    // Stored as { version, annots } so the format can evolve with a migration.
+    this.annots = Array.isArray(data?.annots) ? data.annots : [];
     this.idSeq = this.annots.reduce((max, a) => Math.max(max, Number(a.id.split('-')[1]) || 0), 0);
     for (let p = 1; p <= this.pdf.state.pageCount; p++) void this.renderPage(p);
   }
@@ -892,7 +896,7 @@ export class AnnotationManager {
     clearTimeout(this.saveTimer);
     this.saveTimer = window.setTimeout(() => {
       if (settings.get<boolean>('annotation.autosave')) {
-        chrome.storage.local.set({ [this.storageKey()]: this.annots });
+        chrome.storage.local.set({ [this.storageKey()]: { version: ANNOT_FORMAT_VERSION, annots: this.annots } });
       }
     }, 400);
   }
@@ -928,7 +932,7 @@ export class AnnotationManager {
     return `a-${++this.idSeq}`;
   }
   private storageKey(): string {
-    return `lumen.annot.${this.pdf.fingerprint()}`;
+    return `sobelpdf.annotations.${this.pdf.fingerprint()}`;
   }
 
   getAll(): Annot[] {

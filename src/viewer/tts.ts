@@ -201,8 +201,14 @@ export class TtsController {
   }
 
   /** Speak one sentence, resolving when done; rejects if the token is superseded. */
-  private speak(s: Sentence, token: number, index: number): Promise<void> {
+  private async speak(s: Sentence, token: number, index: number): Promise<void> {
     const engine = settings.get<string>('tts.engine');
+    // Setting off: wait for the neural voice instead of using the browser voice meanwhile.
+    if (engine !== 'native' && !this.kokoro && !settings.get<boolean>('tts.fallbackToNativeWhileLoading')) {
+      this.setStatus('Loading voice…');
+      await this.ensureKokoro();
+      if (token !== this.playToken) throw new Error('cancelled');
+    }
     const useKokoro = engine !== 'native' && this.kokoro;
     if (useKokoro) return this.speakKokoro(s, token, index);
     // native (also the fallback while the model is still downloading)
@@ -304,7 +310,7 @@ export class TtsController {
       this.forceCpu = true;
       this.resetModel();
       // On "Auto", remember it: this GPU can't hold the model.
-      if (settings.get<string>('tts.device') === 'auto') await settings.set('tts.preferWebGPU', false);
+      if (settings.get<string>('tts.device') === 'auto') await settings.set('tts.gpuUnusable', true);
       this.toast('Graphics memory too low for the neural voice — using CPU (change in Settings)');
       await this.ensureKokoro();
     })().finally(() => { this.fallingBack = null; });
@@ -371,7 +377,7 @@ export class TtsController {
     if (this.forceCpu || pref === 'cpu' || !hasGpu) return ['wasm'];
     if (pref === 'gpu') return ['webgpu', 'wasm'];
     // auto: GPU unless it failed before on this machine.
-    return settings.get<boolean>('tts.preferWebGPU') ? ['webgpu', 'wasm'] : ['wasm'];
+    return settings.get<boolean>('tts.gpuUnusable') ? ['wasm'] : ['webgpu', 'wasm'];
   }
 
   private ensureKokoro(): Promise<KokoroClient | null> {

@@ -69,6 +69,13 @@ Last updated **27 November 2026** · version **1.0.0**.
 - Removed the unused `offscreen` and `downloads` permissions, the never-requested
   optional `tabs` permission, the dead `models/*` and `wasm/*` web-accessible entries,
   and the offscreen-document stub. Dropped the broken `lint` script.
+- **Persistent formats frozen for launch** (see "Stable after publishing" below): final
+  storage keys, settings schema reset to v1 with unused fields removed, versioned
+  annotation format, and dead commands removed (`app.bookmark`, `dark.cyclePreset`).
+- Settings toggles that did nothing now work: *Remember last page*, *Restore zoom*
+  (per-document view state) and *Use browser voice while model loads*. The *Enable
+  annotations / Enable TTS* toggles, which did nothing, were removed.
+- New icon set (`icons/`) and a store promo tile (`store/promo-440x280.png`).
 
 ---
 
@@ -84,7 +91,8 @@ Last updated **27 November 2026** · version **1.0.0**.
 4. **Clean reading is rule-based.** Removing an equation can leave a sentence that reads
    oddly ("showed that works"). The planned fix is AI rephrasing (see the roadmap).
 5. **Custom-colors dark mode** is basic. Smart invert is the recommended and default mode.
-6. **Bookmarks** (`b`) are not implemented yet; the key shows a "coming soon" message.
+6. **Bookmarks** are not implemented. The placeholder command was removed; add it back
+   (appended to `COMMANDS`) when the feature lands.
 7. **Highlights on rotated pages** paint above the text (the rotation wrapper forms a
    stacking context). They are semi-transparent, so still readable.
 8. **declarativeNetRequest redirect** substitutes the matched URL (`\0`) without encoding.
@@ -103,13 +111,29 @@ Last updated **27 November 2026** · version **1.0.0**.
    recorded in the 1.0 development conversation and should be moved into `docs/` when
    this work starts.
 2. **Bookmarks** as a third sidebar tab.
-3. **Resume where you left off** (`general.rememberLastPage` / `restoreZoom` exist in
-   the schema but nothing uses them yet).
 4. **Annotation list** in the sidebar (jump to any highlight or note, filter by colour).
 5. **Read-aloud progress bar** with click-to-seek.
 6. Multi-threaded WASM (see known issue 3).
 
 ---
+
+## Stable after publishing (don't break these)
+
+Once the extension has users, these live on their machines and must stay compatible.
+Change them only with a migration.
+
+| What | Where | Rule |
+|---|---|---|
+| Settings storage key `sobelpdf.settings` | `core/settings.ts` | Never rename. |
+| Settings shape | `core/schema.ts` (`SCHEMA_VERSION = 1`) | Additive fields back-fill automatically. Renames, removals and type changes need `migrations[n]` + a `SCHEMA_VERSION` bump. |
+| Annotation key `sobelpdf.annotations.<fingerprint>` → `{ version, annots }` | `viewer/annotations.ts` (`ANNOT_FORMAT_VERSION = 1`) | Bump the version and migrate in `load()` for any shape change. |
+| View-state key `sobelpdf.view.<fingerprint>` → `{ page, fit, scale }` | `viewer/viewer.ts` | Additive only. |
+| Command ids | `COMMANDS` in `schema.ts` | Persisted in custom keymaps: never rename or reuse, only append. |
+| Manifest `commands` names | `manifest.json` | Chrome stores the user's custom shortcuts by these names. |
+| Extension name / icon | `manifest.json`, `icons/` | Changing them after publishing goes through review again. |
+
+CSS class names (`lumen-*`), file names and internal APIs are not persisted, so they can
+be renamed at any time.
 
 ## Smoke test (manual, before every release)
 
@@ -163,7 +187,8 @@ Load `dist/` unpacked once more and run the smoke test before uploading.
 2. Choose a category (Productivity / Tools) and a language.
 3. Add at least one screenshot, 1280×800 or 640×400. Suggested set: light mode, dark
    mode, annotations, the Contents sidebar, the read-aloud bar.
-4. Add a small promo tile, 440×280, and the 128×128 icon (`public/icons/icon128.png`).
+4. Add the small promo tile (`store/promo-440x280.png`, 440×280) and the 128×128 icon
+   (`icons/icon128.png`).
 
 **Privacy practices tab**
 

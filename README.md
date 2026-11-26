@@ -56,6 +56,8 @@ via `kokoro-js` (on-device text-to-speech).
   rest of the page, and selected text keeps the PDF's own lettering.
 - **Large documents stay fast:** pages are drawn lazily and off-screen pages release
   their memory.
+- **Picks up where you left off:** each PDF reopens at the page and zoom you last used
+  (both can be turned off in Settings).
 
 ### Night mode
 
@@ -213,7 +215,7 @@ choose. You can export and import them as JSON.
 
 | Section | Highlights |
 |---|---|
-| General | Storage (local / sync), confirm before export |
+| General | Remember last page, restore zoom, storage (local / sync), confirm before export |
 | Viewing | Default layout, default fit, smooth scrolling & zoom animation, sidebar |
 | Dark mode | On/off, mode, image protection, brightness, contrast, theme |
 | Annotation | Highlight and pen colours per theme, opacity, middle-click eraser |
@@ -266,6 +268,8 @@ src/
     service-worker.ts  PDF redirect rule, context menu, keyboard command, popup messages
   shim/node-empty.ts Stubs Node built-ins that kokoro-js imports on an unused server path
 public/pdfjs/        Bundled pdf.js character maps + standard fonts
+icons/               Extension icons (16 / 48 / 128)
+store/               Store listing assets (promo tile) — not shipped in the extension
 ```
 
 Everything the extension runs is bundled: the pdf.js worker, the ONNX Runtime WASM file

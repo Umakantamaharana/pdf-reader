@@ -138,8 +138,12 @@ export class PDFViewer {
     this.listeners.forEach((fn) => fn({ ...this.state }));
   }
 
-  /** Load a PDF from a URL (remote, file://, blob:, or data:). */
-  async load(url: string): Promise<void> {
+  /**
+   * Load a PDF from a URL (remote, file://, blob:, or data:). `onOpen` runs
+   * once the document is parsed but before the first layout, with its
+   * fingerprint — the place to restore a saved page / zoom into `state`.
+   */
+  async load(url: string, onOpen?: (fingerprint: string) => Promise<void> | void): Promise<void> {
     // Resolve bundled pdf.js assets to absolute extension URLs. Relative paths
     // would resolve against the viewer's subfolder (…/src/viewer/) and 404; the
     // assets ship at the extension root under /pdfjs/ (see public/pdfjs).
@@ -153,7 +157,13 @@ export class PDFViewer {
     });
     this.doc = await task.promise;
     this.state.pageCount = this.doc.numPages;
+    await onOpen?.(this.fingerprint());
+    this.state.page = Math.min(Math.max(1, this.state.page), this.state.pageCount);
     await this.buildLayout();
+    // Restored position: jump there instantly (no smooth scroll through the book).
+    if (this.state.page > 1 && this.state.layout !== 'single') {
+      this.entries[this.state.page - 1]?.el.scrollIntoView({ block: 'start' });
+    }
     this.emit();
   }
 

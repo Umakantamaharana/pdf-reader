@@ -75,7 +75,6 @@ const SECTIONS: Section[] = [
   {
     title: 'Annotation',
     controls: [
-      { kind: 'toggle', path: 'annotation.enabled', label: 'Enable annotations' },
       { kind: 'color', path: 'annotation.colors.light.highlight', label: 'Highlight color (light mode)' },
       { kind: 'color', path: 'annotation.colors.dark.highlight', label: 'Highlight color (dark mode)' },
       { kind: 'slider', path: 'annotation.highlightOpacity', label: 'Highlight opacity', min: 0.1, max: 1, step: 0.05 },
@@ -90,10 +89,8 @@ const SECTIONS: Section[] = [
   {
     title: 'Text-to-Speech',
     controls: [
-      { kind: 'toggle', path: 'tts.enabled', label: 'Enable TTS' },
       { kind: 'select', path: 'tts.engine', label: 'Engine', options: [
         { value: 'kokoro', label: 'Kokoro-82M (best quality)' },
-        { value: 'piper', label: 'Piper (fast / low-end)' },
         { value: 'native', label: 'Browser voices' },
       ] },
       { kind: 'slider', path: 'tts.speed', label: 'Speed', min: 0.5, max: 2, step: 0.1 },

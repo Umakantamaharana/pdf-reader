@@ -7,7 +7,7 @@
  * so adding a new field here automatically back-fills existing users on upgrade.
  */
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 1;
 
 /** A keybinding is a chord ("ctrl+shift+k") or a Vim-style sequence ("g g"). */
 export type KeyBinding = string;
@@ -16,9 +16,8 @@ export type LayoutMode = 'single' | 'two-page' | 'continuous';
 export type FitMode = 'width' | 'height' | 'page' | 'auto' | 'actual';
 export type InvertMode = 'off' | 'smart-invert' | 'custom-colors';
 export type ToolbarPosition = 'floating' | 'docked-top' | 'docked-bottom';
-export type TtsEngine = 'kokoro' | 'piper' | 'native';
+export type TtsEngine = 'kokoro' | 'native';
 export type HighlightGranularity = 'word' | 'sentence';
-export type Theme = 'system' | 'light' | 'dark';
 
 export interface ColorPreset {
   id: string;
@@ -53,7 +52,6 @@ export interface AppSettings {
     rememberLastPage: boolean;
     restoreZoom: boolean;
     confirmOnExport: boolean;
-    telemetry: boolean; // always default false; local-only, never networked unless user opts in
   };
 
   viewing: {
@@ -62,16 +60,13 @@ export interface AppSettings {
     smoothScroll: boolean;
     defaultZoom: number; // 1 = 100%
     defaultRotation: 0 | 90 | 180 | 270;
-    presentationMode: boolean;
     sidebar: {
       visible: boolean;
-      activeTab: 'thumbnails' | 'outline' | 'bookmarks';
-      width: number;
+      activeTab: 'thumbnails' | 'outline';
     };
   };
 
   search: {
-    highlightAll: boolean;
     caseSensitive: boolean;
     regex: boolean;
     wholeWords: boolean;
@@ -89,17 +84,14 @@ export interface AppSettings {
   };
 
   annotation: {
-    enabled: boolean;
-    defaultTool: 'none' | 'highlight' | 'underline' | 'strikethrough' | 'pen' | 'rectangle' | 'arrow' | 'note' | 'textbox' | 'stamp';
-    highlightColor: string;
+    /** Tool selected when annotation mode is first turned on. */
+    defaultTool: 'highlight' | 'underline' | 'strike' | 'pen' | 'rectangle' | 'ellipse' | 'arrow' | 'note' | 'textbox';
     highlightOpacity: number;
-    penColor: string;
     penWidth: number;
-    shapeColor: string;
     /**
      * Colour per tool, kept separately for each theme so a pick made on a dark
      * page doesn't leak into light mode (and vice versa). Values are what the
-     * user sees on screen in that theme. Supersedes highlight/pen/shapeColor.
+     * user sees on screen in that theme.
      */
     colors: { light: ToolColors; dark: ToolColors };
     /** Default font for new text boxes and sticky notes. */
@@ -110,22 +102,20 @@ export interface AppSettings {
       /** When true the wheel-click erases even outside annotation mode. */
       global: boolean;
       radius: number; // px hit-test radius for drag-erase
-      eraseWholeStroke: boolean; // true = delete entire stroke on hit; false = cut segment
     };
   };
 
   tts: {
-    enabled: boolean;
     engine: TtsEngine;
     voice: string; // engine-specific voice id, e.g. "af_bella"
     speed: number; // 0.5 .. 2.0
     pitch: number; // native engine only
     highlightGranularity: HighlightGranularity;
-    highlightWhileReading: boolean;
     preloadModelOnStart: boolean;
+    /** Read with the browser voice while the neural model downloads (else wait). */
     fallbackToNativeWhileLoading: boolean;
-    sentencePauseMs: number;
-    preferWebGPU: boolean; // fall back to WASM automatically if unavailable
+    /** Set automatically when the GPU couldn't run the voice ('auto' then uses the CPU). */
+    gpuUnusable: boolean;
     /** Read like a person: skip chart/axis labels, tables of numbers, running
      *  headers/footers, page numbers and tiny print. */
     skipNonProse: boolean;
@@ -138,11 +128,9 @@ export interface AppSettings {
   };
 
   ui: {
-    theme: Theme;
     toolbarVisible: boolean;
     toolbarPosition: ToolbarPosition;
     density: 'comfortable' | 'compact';
-    showStatusBar: boolean;
     distractionFree: boolean; // master hide-everything toggle
   };
 
@@ -218,7 +206,6 @@ export const COMMANDS: Command[] = [
   // Dark Mode
   { id: 'dark.toggle', title: 'Toggle Dark / Invert', category: 'Dark Mode', defaultKeys: 'shift+d' },
   { id: 'dark.panel', title: 'Open Night Mode Toolbar', category: 'Dark Mode', defaultKeys: 'alt+shift+d' },
-  { id: 'dark.cyclePreset', title: 'Cycle Color Preset', category: 'Dark Mode', defaultKeys: 'shift+p' },
   { id: 'dark.brightnessUp', title: 'Increase Brightness', category: 'Dark Mode', defaultKeys: 'alt+]' },
   { id: 'dark.brightnessDown', title: 'Decrease Brightness', category: 'Dark Mode', defaultKeys: 'alt+[' },
 
@@ -257,7 +244,6 @@ export const COMMANDS: Command[] = [
   // Settings / General
   { id: 'app.commandPalette', title: 'Open Command Palette', category: 'General', defaultKeys: 'ctrl+k | ctrl+shift+p' },
   { id: 'app.settings', title: 'Open Settings', category: 'Settings', defaultKeys: 'ctrl+,' },
-  { id: 'app.bookmark', title: 'Toggle Bookmark on Current Page', category: 'General', defaultKeys: 'b' },
   { id: 'app.help', title: 'Show Keyboard Shortcuts', category: 'General', defaultKeys: '? | ctrl+/' },
 
   // Appended (ids are persisted — keep appending, never reorder).
@@ -273,17 +259,16 @@ export const COMMANDS: Command[] = [
 
 export const DEFAULT_SETTINGS: AppSettings = {
   meta: { schemaVersion: SCHEMA_VERSION, storageMode: 'local' },
-  general: { rememberLastPage: true, restoreZoom: true, confirmOnExport: true, telemetry: false },
+  general: { rememberLastPage: true, restoreZoom: true, confirmOnExport: true },
   viewing: {
     layoutMode: 'continuous',
     fitMode: 'width',
     smoothScroll: true,
     defaultZoom: 1,
     defaultRotation: 0,
-    presentationMode: false,
-    sidebar: { visible: true, activeTab: 'thumbnails', width: 240 },
+    sidebar: { visible: true, activeTab: 'thumbnails' },
   },
-  search: { highlightAll: true, caseSensitive: false, regex: false, wholeWords: false },
+  search: { caseSensitive: false, regex: false, wholeWords: false },
   darkMode: {
     enabled: false,
     mode: 'smart-invert',
@@ -294,13 +279,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     presets: DEFAULT_PRESETS,
   },
   annotation: {
-    enabled: true,
-    defaultTool: 'none',
-    highlightColor: '#ffe066',
+    defaultTool: 'highlight',
     highlightOpacity: 0.4,
-    penColor: '#ff5252',
     penWidth: 2,
-    shapeColor: '#4dabf7',
     // Ink is black on paper / white on a dark page; the pen is green in dark
     // mode so handwriting stands out from the (light grey) text.
     colors: {
@@ -309,31 +290,26 @@ export const DEFAULT_SETTINGS: AppSettings = {
     },
     textStyle: { family: 'sans', size: 14 },
     autosave: true,
-    middleClickEraser: { enabled: true, global: false, radius: 12, eraseWholeStroke: true },
+    middleClickEraser: { enabled: true, global: false, radius: 12 },
   },
   tts: {
-    enabled: true,
     engine: 'kokoro',
     voice: 'af_bella',
     speed: 1,
     pitch: 1,
     highlightGranularity: 'word',
-    highlightWhileReading: true,
     preloadModelOnStart: false,
     fallbackToNativeWhileLoading: true,
-    sentencePauseMs: 120,
-    preferWebGPU: true,
+    gpuUnusable: false,
     skipNonProse: true,
     device: 'auto',
     readingMode: 'clean',
     lookahead: '2',
   },
   ui: {
-    theme: 'system',
     toolbarVisible: true,
     toolbarPosition: 'floating',
     density: 'comfortable',
-    showStatusBar: true,
     distractionFree: false,
   },
   commandPalette: { enabled: true, fuzzy: true, recentCount: 8 },

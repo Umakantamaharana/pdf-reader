@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "sobelpdf",
   "version": "1.0.0",
-  "description": "Keyboard-first PDF reader with smart dark mode, annotations, a middle-click eraser, and offline AI text-to-speech.",
+  "description": "Fast, private PDF reader: smooth zoom, dark mode, annotations, working links and an on-device read-aloud voice.",
   "minimum_chrome_version": "116",
 
   "icons": {

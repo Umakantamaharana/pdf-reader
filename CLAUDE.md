@@ -49,6 +49,10 @@ check behaviour, load `dist/` unpacked in `chrome://extensions`.
   also be listed under `web_accessible_resources`.
 - **Permissions are minimal on purpose** (the store rejects unused ones). Don't add a
   permission without code that uses it, and add its justification to HANDOFF.md.
+- **Persisted formats are frozen** (published extension). Storage keys
+  (`sobelpdf.settings`, `sobelpdf.annotations.<fp>`, `sobelpdf.view.<fp>`), the settings
+  shape, the annotation format and command ids live on users' machines. Change them only
+  through a migration. See "Stable after publishing" in HANDOFF.md.
 
 ## Core architecture & data flow
 
