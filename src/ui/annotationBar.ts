@@ -3,7 +3,8 @@
  *
  * Gives a visible way to pick the current tool, its color, and stroke width
  * (the color input binds to whichever settings path the active tool draws with),
- * plus undo / redo / export and a close (×) button that leaves annotation mode.
+ * plus undo / redo, the erase menu and a close (×) button that leaves annotation
+ * mode. (Saving the annotated PDF lives on the main toolbar.)
  * Buttons dispatch command ids, so they stay in sync with the keyboard.
  */
 
@@ -20,6 +21,20 @@ import type { FontFamily } from '../core/schema';
 /** Size step: 1 pt for small text, 2 pt above 20, 4 pt above 40. */
 function stepFor(size: number): number {
   return size >= 40 ? 4 : size >= 20 ? 2 : 1;
+}
+
+/** Above the anchor (bottom bar) or beside it (left bar), kept on screen. */
+export function placePopover(pop: HTMLElement, anchor: HTMLElement): void {
+  const r = anchor.getBoundingClientRect();
+  const sideways = document.body.dataset.toolbar === 'left';
+  let x = sideways ? r.right + 12 : r.left + r.width / 2 - pop.offsetWidth / 2;
+  let y = sideways ? r.top + r.height / 2 - pop.offsetHeight / 2 : r.top - pop.offsetHeight - 10;
+  if (!sideways && y < 8) y = r.bottom + 10;
+  x = Math.min(window.innerWidth - pop.offsetWidth - 8, Math.max(8, x));
+  y = Math.min(window.innerHeight - pop.offsetHeight - 8, Math.max(8, y));
+  pop.style.left = `${Math.round(x)}px`;
+  pop.style.top = `${Math.round(y)}px`;
+  pop.style.transformOrigin = sideways ? 'left center' : 'bottom center';
 }
 
 function isDark(): boolean {
@@ -133,7 +148,6 @@ export class AnnotationBar {
     for (const [cmd, ico, title] of [
       ['annot.undo', 'undo', 'Undo (Ctrl+Z)'],
       ['annot.redo', 'redo', 'Redo (Ctrl+Shift+Z)'],
-      ['annot.export', 'download', 'Export PDF (Ctrl+S)'],
     ] as const) {
       const b = document.createElement('button');
       b.className = 'annot-tbtn';
@@ -160,7 +174,7 @@ export class AnnotationBar {
     trash.setAttribute('aria-label', 'Erase annotations');
     trash.setAttribute('aria-haspopup', 'menu');
     trash.addEventListener('click', () => this.toggleEraseMenu(trash));
-    actions.insertBefore(trash, actions.lastElementChild); // before Export
+    actions.appendChild(trash);
 
     this.el.append(tools, sep(), this.color.el, this.width, this.fontBox, sep(), actions, sep(), close);
     dock().register('annot', this.el);
@@ -193,11 +207,7 @@ export class AnnotationBar {
       }),
     );
     document.body.appendChild(m);
-    const r = anchor.getBoundingClientRect();
-    const left = Math.min(window.innerWidth - m.offsetWidth - 8, Math.max(8, r.left + r.width / 2 - m.offsetWidth / 2));
-    const top = r.top - m.offsetHeight - 10;
-    m.style.left = `${Math.round(left)}px`;
-    m.style.top = `${Math.round(top >= 8 ? top : r.bottom + 10)}px`;
+    placePopover(m, anchor);
     this.menu = m;
     setTimeout(() => document.addEventListener('pointerdown', this.onOutside, true));
   }

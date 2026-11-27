@@ -8,9 +8,10 @@
  * Faces form a stack, so e.g. opening Display while annotating and closing it
  * returns to the annotation bar.
  *
- * The dock owns positioning (floating / docked-top / docked-bottom from
- * settings.ui.toolbarPosition); faces are plain flex bars and know nothing
- * about where they sit.
+ * The dock owns positioning (bottom centre, or a vertical bar on the left —
+ * settings.ui.toolbarPosition; on the left the drum rolls sideways); faces are
+ * plain flex bars and know nothing about where they sit. 3D is switched on
+ * only while a face is rolling (see pulse()).
  */
 
 type Listener = (top: string) => void;
@@ -77,9 +78,24 @@ class Dock {
     this.listeners.add(fn);
   }
 
+  private pulseTimer: number | undefined;
+
+  /**
+   * Enable the 3D context only while something animates. At rest the faces
+   * have no 3D transform / perspective: Chrome renders backdrop-filter inside a
+   * 3D context with flicker artifacts on repaints (e.g. hovering a button) —
+   * the toolbar "hover glitch".
+   */
+  pulse(ms = 560): void {
+    this.el.classList.add('is-rolling');
+    clearTimeout(this.pulseTimer);
+    this.pulseTimer = window.setTimeout(() => this.el.classList.remove('is-rolling'), ms);
+  }
+
   private roll(fromName: string, toName: string, dir: 'forward' | 'backward'): void {
     const from = this.faces.get(fromName);
     const to = this.faces.get(toName);
+    this.pulse();
     // Forward: the old face tips down/toward you (-90°) while the new one rolls
     // down from the top (+90° → 0). Backward is the mirror image.
     const enterAt = dir === 'forward' ? '90deg' : '-90deg';

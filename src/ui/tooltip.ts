@@ -47,6 +47,12 @@ export function installTooltips(): void {
     tip.classList.add('show');
     const tw = tip.offsetWidth;
     const th = tip.offsetHeight;
+    // Beside a vertical (left) toolbar; otherwise above, or below if no room.
+    if (target.closest('.lumen-dock[data-position="left"]')) {
+      tip.style.left = `${Math.round(Math.min(window.innerWidth - tw - 6, r.right + 10))}px`;
+      tip.style.top = `${Math.round(Math.max(6, r.top + r.height / 2 - th / 2))}px`;
+      return;
+    }
     const left = Math.min(window.innerWidth - tw - 6, Math.max(6, r.left + r.width / 2 - tw / 2));
     const above = r.top - th - 8;
     tip.style.left = `${Math.round(left)}px`;

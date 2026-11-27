@@ -131,16 +131,20 @@ export class ColorPicker {
     if (t) t.style.setProperty('--cp-hue', String(h));
   }
 
-  /** Sit above the button (the bars live at the bottom), clamped on screen. */
+  /** Above the button (bottom bar) or beside it (left bar), clamped on screen. */
   private place(): void {
     if (!this.pop) return;
     const r = this.el.getBoundingClientRect();
-    const pw = this.pop.offsetWidth;
-    const ph = this.pop.offsetHeight;
-    const left = Math.min(window.innerWidth - pw - 8, Math.max(8, r.left + r.width / 2 - pw / 2));
-    const above = r.top - ph - 10;
-    this.pop.style.left = `${Math.round(left)}px`;
-    this.pop.style.top = `${Math.round(above >= 8 ? above : r.bottom + 10)}px`;
+    const pop = this.pop;
+    const sideways = document.body.dataset.toolbar === 'left';
+    let x = sideways ? r.right + 12 : r.left + r.width / 2 - pop.offsetWidth / 2;
+    let y = sideways ? r.top + r.height / 2 - pop.offsetHeight / 2 : r.top - pop.offsetHeight - 10;
+    if (!sideways && y < 8) y = r.bottom + 10;
+    x = Math.min(window.innerWidth - pop.offsetWidth - 8, Math.max(8, x));
+    y = Math.min(window.innerHeight - pop.offsetHeight - 8, Math.max(8, y));
+    pop.style.left = `${Math.round(x)}px`;
+    pop.style.top = `${Math.round(y)}px`;
+    pop.style.transformOrigin = sideways ? 'left center' : 'bottom center';
   }
 
   close(): void {

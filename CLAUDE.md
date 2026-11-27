@@ -85,6 +85,16 @@ check behaviour, load `dist/` unpacked in `chrome://extensions`.
   sub-toolbar (annotation, read-aloud, night mode, find) are faces of one drum:
   `dock().open(name)` rolls forward, `close(name)` rolls back, and faces stack. Don't
   position a bar yourself; register a face.
+- **Dock 3D only while rolling:** `dock().pulse()` adds `.is-rolling`, the only time faces
+  have a 3D transform and the dock has perspective. backdrop-filter inside a 3D context
+  flickers in Chrome (the old hover glitch), so never leave a resting face transformed.
+- **Toolbar** (`ui/toolbar.ts`) is built from `GROUPS`; optional groups map to
+  `ui.toolbarItems.<key>`. Position comes from `ui.toolbarPosition` (`bottom` | `left`),
+  mirrored on `body[data-toolbar]` for popovers and tooltips (they open beside a left
+  bar).
+- **Settings UI** lives in `ui/settingsView.ts` (`mountSettings(root)`, scoped to its
+  root). It is shown in the reader by `ui/settingsDrawer.ts` and on the Options page by
+  `ui/settings.ts`. Add controls to `SECTIONS` there; both places update.
 - **Theme:** `darkmode.ts` toggles `body.lumen-dark`, and every UI colour is a CSS token
   that switches with it (`viewer.css` / `settings.css` / popup).
 
@@ -173,10 +183,13 @@ Annotations are stored **independently of scale**:
   3. Optionally add a button with `icon(...)`.
 - **Add a setting:**
   1. Add the field to `AppSettings` + `DEFAULT_SETTINGS` (it back-fills).
-  2. Add a control to `SECTIONS` in `src/ui/settings.ts` if users should edit it.
+  2. Add a control to `SECTIONS` in `src/ui/settingsView.ts` if users should edit it.
   3. Read it with `settings.get()` and react with `settings.subscribe()`.
 - **Add a sub-toolbar:** build the bar element, then `dock().register('name', el)`. Open
   and close it with `dock().open/close`, and handle Esc in the `app.escape` command.
+- **Change the logo:** edit `brand/logo.svg` (48/128 px) or `brand/logo-small.svg`
+  (16/32 px), then run `node brand/build.mjs`. It regenerates `icons/*.png`, the
+  wordmarks and the store tiles. Don't hand-edit the PNGs.
 - **Add an icon:** add the inner SVG paths to `PATHS` in `src/ui/icons.ts` (24×24,
   stroke-based, `currentColor`).
 

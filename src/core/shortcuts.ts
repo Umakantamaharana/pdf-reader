@@ -169,6 +169,8 @@ export class ShortcutManager {
 
   private onKeyDown(ev: KeyboardEvent): void {
     if (!settings.get<boolean>('shortcuts.enabled')) return;
+    // The keymap editor is recording a new binding: let it have every key.
+    if (document.body.classList.contains('capturing-keys')) return;
 
     const chord = eventToChord(ev);
     if (!chord || MODIFIER_KEYS.has(ev.key)) return; // wait for a complete chord

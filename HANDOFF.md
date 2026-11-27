@@ -75,7 +75,23 @@ Last updated **27 November 2026** · version **1.0.0**.
 - Settings toggles that did nothing now work: *Remember last page*, *Restore zoom*
   (per-document view state) and *Use browser voice while model loads*. The *Enable
   annotations / Enable TTS* toggles, which did nothing, were removed.
-- New icon set (`icons/`) and a store promo tile (`store/promo-440x280.png`).
+- Logo: an "s" made of one reading path through the page lines, with the middle line
+  highlighted. Sources in `brand/`; `node brand/build.mjs` renders `icons/` (16/32/48/128),
+  wordmarks, `store/promo-440x280.png` and `store/marquee-1400x560.png`.
+
+**Toolbar & settings (latest)**
+
+- Customisable main toolbar (`ui.toolbarItems`, ⋯ menu); position bottom or left
+  (`ui.toolbarPosition`). On the left the dock is vertical and rolls on the Y axis.
+- Save button on the main toolbar (removed from the annotation bar); Full screen button;
+  Edge-style fit toggle (`view.toggleFit`: width ⇄ page); night-mode on/off + settings
+  joined in one pill.
+- Settings open as a left slide-in panel in the reader (`ui/settingsDrawer.ts`), sharing
+  `ui/settingsView.ts` with the Options page. The keymap editor pauses the reader's
+  shortcuts while recording (`body.capturing-keys`).
+- Hover glitch: at rest the dock now has no 3D transform or perspective. They exist only
+  while a face rolls (`dock.pulse()`), because backdrop-filter in a 3D context flickers in
+  Chrome.
 
 ---
 
@@ -128,6 +144,7 @@ Change them only with a migration.
 | Settings shape | `core/schema.ts` (`SCHEMA_VERSION = 1`) | Additive fields back-fill automatically. Renames, removals and type changes need `migrations[n]` + a `SCHEMA_VERSION` bump. |
 | Annotation key `sobelpdf.annotations.<fingerprint>` → `{ version, annots }` | `viewer/annotations.ts` (`ANNOT_FORMAT_VERSION = 1`) | Bump the version and migrate in `load()` for any shape change. |
 | View-state key `sobelpdf.view.<fingerprint>` → `{ page, fit, scale }` | `viewer/viewer.ts` | Additive only. |
+| `ui.toolbarPosition` values (`bottom`, `left`) and `ui.toolbarItems` keys | `schema.ts` | Add new items/positions; don't rename existing ones. |
 | Command ids | `COMMANDS` in `schema.ts` | Persisted in custom keymaps: never rename or reuse, only append. |
 | Manifest `commands` names | `manifest.json` | Chrome stores the user's custom shortcuts by these names. |
 | Extension name / icon | `manifest.json`, `icons/` | Changing them after publishing goes through review again. |
@@ -142,6 +159,9 @@ be renamed at any time.
    (smooth, then crisp).
 3. Toggle the sidebar (`s`): it slides and the pages glide. Open the Contents tab and
    click an entry, then press Alt+← to come back.
+3a. Toolbar ⋯: hide/show items, move to Left and back, hover across buttons (no flicker),
+   Fit toggle, Full screen, Save. Open Settings (`Ctrl+,`): the panel slides in, changes
+   apply live, Esc closes it.
 4. Click a link on a contents page or a cross-reference.
 5. `Shift+D` dark mode: cross-fade, photos stay positive, thumbnails go dark.
 6. Annotate (`a`): multi-line highlight (single layer), text box (type, drag, change
@@ -188,7 +208,7 @@ Load `dist/` unpacked once more and run the smoke test before uploading.
 3. Add at least one screenshot, 1280×800 or 640×400. Suggested set: light mode, dark
    mode, annotations, the Contents sidebar, the read-aloud bar.
 4. Add the small promo tile (`store/promo-440x280.png`, 440×280) and the 128×128 icon
-   (`icons/icon128.png`).
+   (`icons/icon128.png`). Optionally add the marquee tile (`store/marquee-1400x560.png`).
 
 **Privacy practices tab**
 

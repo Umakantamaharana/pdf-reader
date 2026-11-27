@@ -24,6 +24,10 @@ import { CommandPalette } from '../ui/commandPalette';
 import { installTooltips } from '../ui/tooltip';
 import { dock } from '../ui/dock';
 import { dismiss } from '../ui/motion';
+import { SettingsDrawer } from '../ui/settingsDrawer';
+
+/** In-reader settings panel (left slide-in), created on boot. */
+let settingsDrawer: SettingsDrawer;
 import './viewer.css';
 
 async function main() {
@@ -38,6 +42,7 @@ async function main() {
   const search = new SearchController(pdf);
   const annot = new AnnotationManager(pdf, toast);
   const toolbar = new Toolbar(commands);
+  settingsDrawer = new SettingsDrawer();
   new AnnotationBar(commands, annot);
   new SidebarPanel(pdf);
   const display = new DisplayPanel();
@@ -164,6 +169,8 @@ function registerCommands(
     'view.fitWidth': () => pdf.setFit('width'),
     'view.fitPage': () => pdf.setFit('page'),
     'view.fitHeight': () => pdf.setFit('height'),
+    // Edge-style single button: fit width ⇄ fit whole page.
+    'view.toggleFit': () => pdf.setFit(pdf.state.fit === 'width' ? 'page' : 'width'),
     'view.actualSize': () => pdf.actualSize(),
     'view.rotateCW': () => pdf.rotate(90),
     'view.rotateCCW': () => pdf.rotate(-90),
@@ -216,13 +223,14 @@ function registerCommands(
 
     // General
     'app.commandPalette': () => palette.toggle(),
-    'app.settings': () => chrome.runtime.openOptionsPage?.(),
+    'app.settings': () => settingsDrawer.toggle(),
     'app.help': () => palette.show(),
     // Esc rolls the topmost sub-toolbar back to the main toolbar (fields like
     // the search box and the palette handle their own Esc first).
     'app.escape': () => {
       const a = document.activeElement as HTMLElement | null;
       if (a && (a.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(a.tagName))) return;
+      if (settingsDrawer.isOpen()) return settingsDrawer.close();
       const top = dock().top();
       if (top === 'display') display.close();
       else if (top === 'search') search.close();

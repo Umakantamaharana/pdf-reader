@@ -15,7 +15,24 @@ export type KeyBinding = string;
 export type LayoutMode = 'single' | 'two-page' | 'continuous';
 export type FitMode = 'width' | 'height' | 'page' | 'auto' | 'actual';
 export type InvertMode = 'off' | 'smart-invert' | 'custom-colors';
-export type ToolbarPosition = 'floating' | 'docked-top' | 'docked-bottom';
+export type ToolbarPosition = 'bottom' | 'left';
+
+/** Optional toolbar items the user can show/hide (page navigation + ⋯ always show). */
+export interface ToolbarItems {
+  sidebar: boolean;
+  zoom: boolean;
+  fit: boolean;
+  layout: boolean;
+  rotate: boolean;
+  annotate: boolean;
+  night: boolean;
+  read: boolean;
+  find: boolean;
+  save: boolean;
+  fullscreen: boolean;
+  palette: boolean;
+  settings: boolean;
+}
 export type TtsEngine = 'kokoro' | 'native';
 export type HighlightGranularity = 'word' | 'sentence';
 
@@ -130,6 +147,8 @@ export interface AppSettings {
   ui: {
     toolbarVisible: boolean;
     toolbarPosition: ToolbarPosition;
+    /** Which optional items the main toolbar shows. */
+    toolbarItems: ToolbarItems;
     density: 'comfortable' | 'compact';
     distractionFree: boolean; // master hide-everything toggle
   };
@@ -198,7 +217,7 @@ export const COMMANDS: Command[] = [
   { id: 'view.rotateCW', title: 'Rotate Clockwise', category: 'View', defaultKeys: 'r | ctrl+]' },
   { id: 'view.rotateCCW', title: 'Rotate Counter-Clockwise', category: 'View', defaultKeys: 'shift+r | ctrl+[' },
   { id: 'view.cycleLayout', title: 'Cycle Layout (Single/Two/Continuous)', category: 'View', defaultKeys: 'l' },
-  { id: 'view.presentation', title: 'Toggle Presentation Mode', category: 'View', defaultKeys: 'f5' },
+  { id: 'view.presentation', title: 'Full Screen', category: 'View', defaultKeys: 'f5' },
   { id: 'view.toggleSidebar', title: 'Toggle Sidebar', category: 'View', defaultKeys: 's | f4' },
   { id: 'view.toggleToolbar', title: 'Toggle Toolbar', category: 'View', defaultKeys: 't | f8' },
   { id: 'view.distractionFree', title: 'Toggle Distraction-Free Mode', category: 'View', defaultKeys: 'z z' },
@@ -255,6 +274,7 @@ export const COMMANDS: Command[] = [
   { id: 'annot.clearView', title: 'Erase Annotations in View', category: 'Annotation', defaultKeys: '' },
   { id: 'nav.back', title: 'Back (after following a link)', category: 'Navigation', defaultKeys: 'alt+left' },
   { id: 'nav.forward', title: 'Forward', category: 'Navigation', defaultKeys: 'alt+right' },
+  { id: 'view.toggleFit', title: 'Fit Width / Fit Page', category: 'View', defaultKeys: '' },
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -308,7 +328,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   ui: {
     toolbarVisible: true,
-    toolbarPosition: 'floating',
+    toolbarPosition: 'bottom',
+    toolbarItems: {
+      sidebar: true, zoom: true, fit: true, layout: false, rotate: false, annotate: true,
+      night: true, read: true, find: false, save: true, fullscreen: true, palette: false, settings: true,
+    },
     density: 'comfortable',
     distractionFree: false,
   },
