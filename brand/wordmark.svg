@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 128" width="520" height="128">
+  <g transform="translate(0 0) scale(1)">
+  <!-- sobelpdf mark: a page whose text lines run as one reading path that forms an "s",
+       with the middle line highlighted. Ink tile, paper page, highlighter yellow. -->
+  <defs>
+    <linearGradient id="m-tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2d35"/>
+      <stop offset="1" stop-color="#121419"/>
+    </linearGradient>
+    <linearGradient id="m-paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eceae4"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#m-tile)"/>
+  <rect x="0.75" y="0.75" width="126.5" height="126.5" rx="27.25" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="1.5"/>
+  <path d="M40 18H80L98 36V102a8 8 0 0 1-8 8H40a8 8 0 0 1-8-8V26a8 8 0 0 1 8-8Z" fill="url(#m-paper)"/>
+  <path d="M80 18V30a6 6 0 0 0 6 6H98Z" fill="#c9c6bd"/>
+  <rect x="41" y="56.5" width="47" height="15" rx="4" fill="#ffcc2e" transform="rotate(-2 64 64)"/>
+  <path d="M79 46H55a9 9 0 0 0 0 18H73a9 9 0 0 1 0 18H49" fill="none" stroke="#1a1d23" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+  <text x="150" y="86" font-family="Inter, 'Segoe UI', system-ui, 'DejaVu Sans', sans-serif" font-size="66" letter-spacing="-1.5">
+    <tspan font-weight="700" fill="#16181d">sobel</tspan><tspan font-weight="400" fill="#6b707b">pdf</tspan>
+  </text>
+</svg>
